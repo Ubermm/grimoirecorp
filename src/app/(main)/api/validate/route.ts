@@ -62,17 +62,27 @@ export async function POST(request: NextRequest) {
     form.facts.forEach(fact => {
       const question = form.questions.find(q => q.id === fact.question_id);
       if (!question || !responses[fact.question_id]) return;
-
+    
       // Skip if response is "Does not apply"
       if (responses[fact.question_id] === "Does not apply") return;
-
-      const prologValue = convertToPrologValue(responses[fact.question_id], question.type);
-      const factTemplate = fact.template.replaceAll("REPLACE_FOR_BACKSLASH","\\").replace(
-        new RegExp(`\\{${question.id.replace('q', '')}}`, 'g'),
-        prologValue
-      ).replaceAll("\"", "\'");
+    
+      let factTemplate = fact.template.replaceAll("REPLACE_FOR_BACKSLASH", "\\").replaceAll("\"", "\'");
+    
+      // Replace `{i}` placeholders properly
+      factTemplate = factTemplate.replace(/\{(\d+)\}/g, (_, match) => {
+        const qIndex = parseInt(match, 10) - 1;
+        if (qIndex >= 0 && qIndex < form.questions.length) {
+          const q = form.questions[qIndex];
+          if (responses[q.id]) {
+            return convertToPrologValue(responses[q.id], q.type);
+          }
+        }
+        return `{${match}}`; // Leave as-is if not found
+      });
+    
       prologProgram += factTemplate + '\n';
     });
+    
 
     // Add validation rules
     form.validations.forEach(validation => {

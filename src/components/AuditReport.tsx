@@ -13,6 +13,7 @@ import {
 } from '@react-pdf/renderer';
 import { Button } from "@/components/ui/button";
 import { ExternalLink } from "lucide-react";
+import { parse } from 'path';
 
 // Register custom fonts
 Font.register({
@@ -82,20 +83,24 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     borderBottomWidth: 1,
     borderBottomColor: '#bfbfbf',
-    minHeight: 25,
-    alignItems: 'center'
-  },
+    height: 'auto', // Ensure rows adjust to content
+    alignItems: 'center', // Align properly
+  },  
   tableHeader: {
-    backgroundColor: '#f0f0f0'
-  },
+    backgroundColor: '#f0f0f0',
+    borderBottomWidth: 1,
+    borderBottomColor: '#bfbfbf', // Ensure clear separation from rows
+  },  
   tableCell: {
     padding: 5,
-    fontSize: 9
+    fontSize: 9,
+    flexShrink: 1, // Allow cells to shrink if needed
   },
   questionCell: {
     flex: 3,
     padding: 5,
-    fontSize: 9
+    fontSize: 9,
+    flexShrink: 1, // Allow cells to shrink if needed
   },
   cfrCell: {
     flex: 1,
@@ -113,6 +118,11 @@ const styles = StyleSheet.create({
     padding: 5,
     backgroundColor: '#f9f9f9'
   },
+  deepValidationResult: {
+    marginTop: 10,
+    padding: 5,
+    backgroundColor: '#f0f4f8'
+  },
   validationPassed: {
     fontSize: 10,
     marginBottom: 5,
@@ -128,6 +138,10 @@ const styles = StyleSheet.create({
     marginBottom: 5,
     alignItems: 'center'
   },
+  questionText: {
+    fontSize: 9,
+    color: '#333',
+  },
   metadataLabel: {
     fontSize: 10,
     fontWeight: 1000,
@@ -139,13 +153,34 @@ const styles = StyleSheet.create({
     fontWeight: 400,
     color: '#222',
     flex: 1,
-  },  
+  },
   disclaimer: {
     fontSize: 8,
     color: '#666',
     marginTop: 30,
     borderTop: '1 solid #999',
     paddingTop: 10
+  },
+  edgeCasesSection: {
+    marginTop: 20,
+    paddingTop: 20, // Ensure it doesn't overlap
+    borderTop: '1 solid #999',
+  },  
+  edgeCasesTitle: {
+    fontSize: 16,
+    fontWeight: 600,
+    marginBottom: 10,
+    color: '#333'
+  },
+  warning: {
+    backgroundColor: '#fff9e6',
+    padding: 8,
+    borderRadius: 4,
+    marginBottom: 10
+  },
+  warningText: {
+    fontSize: 9,
+    color: '#b45309'
   }
 });
 
@@ -174,7 +209,39 @@ const getQuestionDetails = async (questionId, subsectionCode) => {
   }
 };
 
-const AuditReportDoc = ({ audit, questionDetails }) => {
+// Helper function to load deep questions
+const loadDeepQuestions = async (code, currentFormData) => {
+  try {
+    const warnL = await fetch('/api/topk', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        cfrSubsection: code
+      })
+    });
+    
+    const Ls = await warnL.json();
+    
+    const response = await fetch('/api/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        cfrSubsection: code,
+        form: currentFormData,
+        warningLetters: Ls.warningLetters || []
+      })
+    });
+    
+    if (!response.ok) throw new Error('Failed to load deep questions');
+    
+    return await response.json();
+  } catch (error) {
+    console.error('Error loading deep questions:', error);
+    return null;
+  }
+};
+
+const AuditReportDoc = ({ audit, questionDetails, deepForms }) => {
   const formatDate = (date) => {
     return new Date(date).toLocaleDateString('en-US', {
       year: 'numeric',
@@ -227,7 +294,7 @@ const AuditReportDoc = ({ audit, questionDetails }) => {
 
         {/* Subsections */}
         {audit.subsections.map((subsection, index) => (
-          <View key={subsection.id} wrap={false}>
+          <View key={subsection.id}>
             <Text style={styles.subtitle}>
               Section {index + 1}: {subsection.code}
             </Text>
@@ -239,53 +306,135 @@ const AuditReportDoc = ({ audit, questionDetails }) => {
                 <Text style={styles.cfrCell}>CFR Reference</Text>
                 <Text style={styles.responseCell}>Response</Text>
               </View>
-              {subsection.responses.map((response) => {
-                const question = questionDetails[response.questionId];
-                
-                return (
-                  <View key={response.questionId} style={styles.tableRow}>
-                    <View style={styles.questionCell}>
-                      <Text style={styles.questionText}>
-                        {question?.text || 'Loading...'}
-                      </Text>
+              
+              {/* Show questions for this subsection from questionDetails */}
+              {Object.entries(questionDetails)
+              .filter(([questionId, question]) => parseInt(question.cfr_reference) === parseInt(subsection.code))
+              .map(([questionId, question]) => {
+                {
+                  // Find corresponding response if it exists
+                  const response = subsection.responses?.find(r => r.questionId === questionId);
+                  
+                  return (
+                    <View key={questionId} style={styles.tableRow}>
+                      <View style={styles.questionCell}>
+                        <Text style={styles.questionText}>
+                          {question.text || 'Loading...'}
+                        </Text>
+                      </View>
+                      <View style={styles.cfrCell}>
+                        <Text style={styles.questionText}>
+                          {question.cfr_reference || 'N/A'}
+                        </Text>
+                      </View>
+                      <View style={styles.responseCell}>
+                        <Text style={styles.questionText}>
+                          {response?.answer || 'Not Answered'}
+                        </Text>
+                      </View>
                     </View>
-                    <Text style={styles.cfrCell}>
-                      {question?.cfr_reference || 'N/A'}
-                    </Text>
-                    <Text style={styles.responseCell}>
-                      {response.answer}
-                    </Text>
-                  </View>
-                );
+                  );
+                }
+                return null;
               })}
             </View>
 
-            {/* Validation Results */}
-            {subsection.validationResults && (
-              <View style={styles.validationResult}>
-                <Text style={styles.sectionTitle}>Validation Results</Text>
-                <Text style={subsection.validationResults.passed.every(result => result === 'true') ? styles.validationPassed : styles.validationFailed}>
-                  Status: {subsection.validationResults.passed.every(result => result === 'true') ? 'PASSED' : 'FAILED'}
-                </Text>
-                {subsection.validationResults.description?.map((desc, idx) => {
-                  const hasValidationResult = idx < subsection.validationResults.passed.length;
-                  const isPassed = hasValidationResult ? subsection.validationResults.passed[idx] === 'true' : false;
-                  return (
-                    <Text key={idx} style={isPassed ? styles.validationPassed : styles.validationFailed}>
-                      {isPassed ? "• Passed: " : "• Failed: "} {desc}
-                    </Text>
-                  );
-                })}
+            {/* Standard Validation Results */}
+            <View style={styles.validationResult}>
+              <Text style={styles.sectionTitle}>Standard Validation Results</Text>
+              {subsection.validationResults ? (
+                <>
+                  <Text style={subsection.validationResults.passed.every(result => result === 'true') ? styles.validationPassed : styles.validationFailed}>
+                    Status: {subsection.validationResults.passed.every(result => result === 'true') ? 'PASSED' : 'FAILED'}
+                  </Text>
+                  {subsection.validationResults.description?.map((desc, idx) => {
+                    const hasValidationResult = idx < subsection.validationResults.passed.length;
+                    const isPassed = hasValidationResult ? subsection.validationResults.passed[idx] === 'true' : false;
+                    return (
+                      <Text key={idx} style={isPassed ? styles.validationPassed : styles.validationFailed}>
+                        {isPassed ? "• Passed: " : "• Failed: "} {desc}
+                      </Text>
+                    );
+                  })}
+                </>
+              ) : (
+                <Text style={styles.text}>No validation results available - Not Answered</Text>
+              )}
+            </View>
+
+            {/* Edge Cases (Deep Form) Section */}
+            <View style={styles.edgeCasesSection}>
+              <Text style={styles.edgeCasesTitle}>Edge Cases Analysis</Text>
+              
+              <View style={styles.table}>
+                <View style={[styles.tableRow, styles.tableHeader]}>
+                  <Text style={styles.questionCell}>Edge Case question</Text>
+                  <Text style={styles.cfrCell}>CFR Reference</Text>
+                  <Text style={styles.responseCell}>Response</Text>
+                </View>
+                {deepForms[subsection.code]?.questions ? (
+                  deepForms[subsection.code].questions
+                  .filter((question, qidx) => parseInt(question.cfr_reference) == parseInt(subsection.code))
+                  .map((question, qIdx) => {
+                    const response = subsection.deepResponses?.[qIdx] || 'Not Answered';
+                    
+                    return (
+                      <View key={qIdx} style={styles.tableRow}>
+                        <View style={styles.questionCell}>
+                          <Text style={styles.questionText}>
+                            {question.text || 'Loading...'}
+                          </Text>
+                        </View>
+                        <View style={styles.cfrCell}>
+                          <Text style={styles.questionText}>
+                            {question.cfr_reference || 'N/A'}
+                          </Text>
+                        </View>
+                        <View style={styles.responseCell}>
+                          <Text style={styles.questionText}>
+                            {response?.answer || 'Not Answered'}
+                          </Text>
+                        </View>
+                      </View>
+                    );
+                  })
+                ) : (
+                  <View style={styles.tableRow}>
+                    <Text style={styles.questionCell}>No edge cases available</Text>
+                    <Text style={styles.responseCell}>Not Applicable</Text>
+                  </View>
+                )}
               </View>
-            )}
+            </View>
+
+            {/* Deep Validation Results */}
+            <View style={styles.deepValidationResult}>
+              <Text style={styles.sectionTitle}>Edge Cases Validation Results</Text>
+              {subsection.deepValidationResults ? (
+                <>
+                  <Text style={subsection.deepValidationResults.passed.every(result => result === 'true') ? styles.validationPassed : styles.validationFailed}>
+                    Status: {subsection.deepValidationResults.passed.every(result => result === 'true') ? 'PASSED' : 'FAILED'}
+                  </Text>
+                  {subsection.deepValidationResults.description?.map((desc, idx) => {
+                    const hasValidationResult = idx < subsection.deepValidationResults.passed.length;
+                    const isPassed = hasValidationResult ? subsection.deepValidationResults.passed[idx] === 'true' : false;
+                    return (
+                      <Text key={idx} style={isPassed ? styles.validationPassed : styles.validationFailed}>
+                        {isPassed ? "• Passed: " : "• Failed: "} {desc}
+                      </Text>
+                    );
+                  })}
+                </>
+              ) : (
+                <Text style={styles.text}>No validation results available - Not Answered</Text>
+              )}
+            </View>
 
             {/* Comments */}
-            {subsection.comment && (
-              <View style={styles.validationResult}>
-                <Text style={styles.sectionTitle}>Auditor Comments</Text>
-                <Text style={styles.text}>{subsection.comment}</Text>
-              </View>
-            )}
+            <View style={styles.validationResult}>
+              <Text style={styles.sectionTitle}>Auditor Comments</Text>
+              <Text style={styles.text}>{subsection.comment || 'No comments provided'}</Text>
+            </View>
           </View>
         ))}
 
@@ -303,36 +452,73 @@ const AuditReportDoc = ({ audit, questionDetails }) => {
   );
 };
 
+// We also need to modify the AuditReport component to fetch ALL questions
 const AuditReport = ({ audit }) => {
   const [questionDetails, setQuestionDetails] = useState({});
+  const [deepForms, setDeepForms] = useState({});
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    const fetchAllQuestionDetails = async () => {
-      const details = {};
-      
+    const fetchAllData = async () => {
       try {
+        // Fetch all questions for each subsection
+        const details = {};
         for (const subsection of audit.subsections) {
-          for (const response of subsection.responses) {
-            const question = await getQuestionDetails(response.questionId, subsection.code);
-            if (question) {
-              details[response.questionId] = question;
+          try {
+            // Fetch all questions for this subsection's form
+            const regsResponse = await fetch(`/api/regulations?code=${encodeURIComponent(subsection.code)}`);
+            if (!regsResponse.ok) throw new Error('Failed to fetch regulation');
+            const regulation = await regsResponse.json();
+
+            // Get form code from regulation
+            const formKey = regulation.FormCode;
+            if (!formKey) throw new Error('No form code found in regulation');
+            const formsResponse = await fetch(`/api/forms?code=${encodeURIComponent(formKey)}`);
+            if (formsResponse.ok) {
+              const formData = await formsResponse.json();
+              
+              // Add all questions from the form to our details object
+              if (formData.FormText && formData.FormText.questions) {
+                formData.FormText.questions.forEach(question => {
+                  details[question.id] = question;
+                });
+              }
             }
+          } catch (error) {
+            console.error(`Failed to fetch questions for subsection ${subsection.code}:`, error);
           }
         }
-      } catch (error) {
-        console.error('Error fetching question details:', error);
-      }
+        setQuestionDetails(details);
 
-      setQuestionDetails(details);
-      setIsLoading(false);
+        // Fetch deep form data for each subsection
+        const deepFormsData = {};
+        for (const subsection of audit.subsections) {
+          // Create a simple form representation to pass to the API
+          const currentFormData = {
+            responses: subsection.responses?.reduce((acc, response) => {
+              acc[response.questionId] = response.answer;
+              return acc;
+            }, {}) || {}
+          };
+
+          const deepFormResult = await loadDeepQuestions(subsection.code, currentFormData);
+          if (deepFormResult) {
+            deepFormsData[subsection.code] = deepFormResult.form;
+          }
+        }
+        setDeepForms(deepFormsData);
+      } catch (error) {
+        console.error('Error fetching data:', error);
+      } finally {
+        setIsLoading(false);
+      }
     };
 
-    fetchAllQuestionDetails();
+    fetchAllData();
   }, [audit]);
 
   const openInNewWindow = async () => {
-    const blob = await pdf(<AuditReportDoc audit={audit} questionDetails={questionDetails} />).toBlob();
+    const blob = await pdf(<AuditReportDoc audit={audit} questionDetails={questionDetails} deepForms={deepForms} />).toBlob();
     const url = URL.createObjectURL(blob);
     window.open(url, '_blank');
   };
@@ -352,7 +538,7 @@ const AuditReport = ({ audit }) => {
       
       <div className="flex-1">
         <PDFViewer className="w-full h-full">
-          <AuditReportDoc audit={audit} questionDetails={questionDetails} />
+          <AuditReportDoc audit={audit} questionDetails={questionDetails} deepForms={deepForms} />
         </PDFViewer>
       </div>
     </div>

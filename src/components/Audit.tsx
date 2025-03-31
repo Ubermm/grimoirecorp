@@ -3,9 +3,10 @@
 
 import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useForm, FormProvider } from "react-hook-form";
+import { useForm, FormProvider,useFormContext } from "react-hook-form";
 import { toast } from 'sonner';
 import {
+  FileSearch,
   CheckCircle, 
   ChevronLeft, 
   ChevronRight, 
@@ -120,6 +121,10 @@ interface AuditSubsection {
     passed: string[];
     description: string[];
   };
+  deepValidationResults?: {
+    passed: string[];
+    description: string[];
+  };
   comment?: string; // Add comment field
 }
 
@@ -143,9 +148,178 @@ interface Audit {
 
 interface FormValues {
   responses: Record<string, string>;
+  deepResponses: Record<string, string>;
 }
 let cachedRegulations: Record<string, string> | null = null;
 let cachedForms: Record<string, FormSchema> | null = null;
+
+const RegulationDialog= ({ 
+  showRegulationDialog, 
+  setShowRegulationDialog, 
+  audit, 
+  currentStep 
+}) => {
+  const [regulation, setRegulation] = useState(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState(null);
+
+  
+
+  useEffect(() => {
+    if (!audit?.subsections[currentStep]?.code || !showRegulationDialog) return;
+
+    const fetchRegulation = async () => {
+      try {
+        setIsLoading(true);
+        setError(null);
+        const codeToFetch = audit.subsections[currentStep].code;
+        const response = await fetch(`/api/regulations?code=${encodeURIComponent(codeToFetch)}`);
+        
+        if (!response.ok) {
+          throw new Error('Failed to fetch regulation');
+        }
+        
+        const data = await response.json();
+        setRegulation(data);
+      } catch (err) {
+        setError(err.message);
+        toast.error('Failed to load regulation');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchRegulation();
+  }, [audit?.subsections[currentStep]?.code, showRegulationDialog]);
+
+  if (!audit?.subsections[currentStep]?.code) return null;
+
+  return (
+    <Dialog open={showRegulationDialog} onOpenChange={setShowRegulationDialog}>
+      <DialogContent className="min-w-[900px]">
+        <DialogHeader>
+          <DialogTitle>{audit.subsections[currentStep].code}</DialogTitle>
+        </DialogHeader>
+        <ScrollArea className="h-[60vh] w-auto min-w-[800px] p-8">
+          <div className="p-4 space-y-4">
+            {isLoading ? (
+              <div className="flex justify-center">
+                <Loader2 className="h-8 w-8 animate-spin" />
+              </div>
+            ) : error ? (
+              <p className="text-red-500">{error}</p>
+            ) : (
+              <p className="text-sm whitespace-pre-wrap font-mono">
+                {regulation?.RegText || 'Regulation text not found'}
+              </p>
+            )}
+          </div>
+        </ScrollArea>
+        <DialogFooter>
+          <Button onClick={() => setShowRegulationDialog(false)}>Close</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+};
+
+const MetadataDialog = ({
+  showMetadataDialog,
+  setShowMetadataDialog,
+  audit,
+  setAudit
+}) => {
+
+const [localMetadata, setLocalMetadata] = useState(audit?.metadata || {});
+
+  const handleSave = async () => {
+    if (!audit) return;
+
+    try {
+      const updatedAudit = {
+        ...audit,
+        metadata: localMetadata
+      };
+
+      const response = await fetch('/api/audit', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updatedAudit)
+      });
+
+      if (!response.ok) throw new Error('Failed to update metadata');
+
+      const savedAudit = await response.json();
+      setAudit(savedAudit);
+      setShowMetadataDialog(false);
+      toast.success('Audit details updated successfully');
+    } catch (error) {
+      console.error('Error updating audit details:', error);
+      toast.error('Failed to update audit details');
+    }
+  };
+
+  return (
+    <Dialog open={showMetadataDialog} onOpenChange={setShowMetadataDialog}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Edit Audit Details</DialogTitle>
+        </DialogHeader>
+        
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="facility">Facility Name</Label>
+            <Input
+              id="facility"
+              placeholder="Enter facility name"
+              value={localMetadata.facility || ''}
+              onChange={(e) => setLocalMetadata({ ...localMetadata, facility: e.target.value })}
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="auditType">Audit Type</Label>
+            <Input
+              id="auditType"
+              placeholder="e.g., Annual, Quarterly, Special"
+              value={localMetadata.auditType || ''}
+              onChange={(e) => setLocalMetadata({ ...localMetadata, auditType: e.target.value })}
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="department">Department</Label>
+            <Input
+              id="department"
+              placeholder="Enter department name"
+              value={localMetadata.department || ''}
+              onChange={(e) => setLocalMetadata({ ...localMetadata, department: e.target.value })}
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="reviewer">Lead Reviewer</Label>
+            <Input
+              id="reviewer"
+              placeholder="Enter lead reviewer's name"
+              value={localMetadata.reviewer || ''}
+              onChange={(e) => setLocalMetadata({ ...localMetadata, reviewer: e.target.value })}
+            />
+          </div>
+        </div>
+
+        <DialogFooter className="flex justify-end gap-2">
+          <Button variant="outline" onClick={() => setShowMetadataDialog(false)}>
+            Cancel
+          </Button>
+          <Button onClick={handleSave}>
+            Save
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+  };
 
 const AuditComponent = () => {
   const router = useRouter();
@@ -176,6 +350,9 @@ const AuditComponent = () => {
   const [editingName, setEditingName] = useState('');
   const [hasEdited, sethasEdited] = useState(false);
   const [showRegulationDialog, setShowRegulationDialog] = useState(false);
+  // Add to existing state management section
+const [deepForm, setDeepForm] = useState<FormSchema | null>(null);
+const [loadingDeepForm, setLoadingDeepForm] = useState(false);
   // Add new state for creation steps
   const [creationStep, setCreationStep] = useState(1); // 1: Name/Codes, 2: Metadata
   const [auditMetadata, setAuditMetadata] = useState({
@@ -186,6 +363,303 @@ const AuditComponent = () => {
   });
   const [showMetadataDialog, setShowMetadataDialog] = useState(false);
   // Updated delete handler with confirmation
+
+
+  useEffect(() => {
+    if (!currentForm && !deepForm) return;
+  
+    let initialResponses = {};
+  
+    // First, try to get existing responses from audit for main form
+    if (audit?.subsections[currentStep]?.responses) {
+      initialResponses = audit.subsections[currentStep].responses.reduce(
+        (acc, curr) => ({
+          ...acc,
+          [curr.questionId]: curr.answer
+        }),
+        {}
+      );
+    }
+  
+    // Add existing deep responses if available
+    if (audit?.subsections[currentStep]?.deepResponses) {
+      initialResponses = {
+        ...initialResponses,
+        ...audit.subsections[currentStep].deepResponses.reduce(
+          (acc, curr) => ({
+            ...acc,
+            [curr.questionId]: curr.answer
+          }),
+          {}
+        )
+      };
+    }
+  
+    // For any missing responses, fill with defaults from main form
+    if (currentForm) {
+      currentForm.questions.forEach(question => {
+        if (!initialResponses[question.id]) {
+          initialResponses[question.id] = getDefaultFormFieldValue(question);
+        }
+      });
+    }
+  
+    // Fill defaults for deep form questions
+    if (deepForm) {
+      deepForm.questions?.forEach(question => {
+        if (!initialResponses[question.id]) {
+          initialResponses[question.id] = getDefaultFormFieldValue(question);
+        }
+      });
+    }
+  
+    methods.reset({ 
+      responses: initialResponses,
+      auditName: audit?.name || `Audit ${new Date().toLocaleDateString()}`
+    });
+  }, [currentForm, deepForm, currentStep, audit]);
+
+  // Load existing audits
+  useEffect(() => {
+    const loadExistingAudits = async () => {
+      try {
+        const response = await fetch('/api/audit');
+        if (!response.ok) throw new Error('Failed to fetch existing audits');
+        const audits = await response.json();
+        setExistingAudits(audits);
+        
+      } catch (error) {
+        console.error('Error loading existing audits:', error);
+        toast.info('Failed to load existing audits');
+      }
+    };
+
+    if (showExistingAudits) {
+      loadExistingAudits();
+    }
+  }, [showExistingAudits]);  
+
+  // Load initial data
+  useEffect(() => {
+    const loadInitialData = async () => {
+      try {
+        setIsLoading(true);
+  
+        // Load regulations if not cached
+        if (!cachedRegulations) {
+          const regsResponse = await fetch('/api/serveReg');
+          if (!regsResponse.ok) throw new Error('Failed to fetch regulations');
+          cachedRegulations = await regsResponse.json();
+        }
+        
+        setRegulations(cachedRegulations.content.Keys);
+  
+        // Load existing audit if ID is provided
+        if (auditId) {
+          const auditResponse = await fetch(`/api/audit?id=${auditId}`);
+          if (!auditResponse.ok) throw new Error('Failed to load audit');
+          
+          const auditData = await auditResponse.json();
+          setAudit(auditData);
+          setShowExistingAudits(false);
+          
+          if (auditData?.subsections) {
+            setSelectedCodes(auditData.subsections.map((s: AuditSubsection) => s.code));
+            setCurrentStep(auditData.checkpoint || 0);
+            
+            // Load form for current checkpoint
+            const currentSubsection = auditData.subsections[auditData.checkpoint || 0];
+            if (currentSubsection) {
+              const codeToFetch = currentSubsection.code;
+              const regsResponse = await fetch(`/api/regulations?code=${encodeURIComponent(codeToFetch)}`);
+              if (!regsResponse.ok) throw new Error('Failed to fetch regulation');
+              const regulation = await regsResponse.json();
+  
+              if (regulation?.FormCode) {
+                const formsResponse = await fetch(`/api/forms?code=${encodeURIComponent(regulation.FormCode)}`);
+                if (!formsResponse.ok) throw new Error('Failed to fetch form');
+                const form = await formsResponse.json();
+                setCurrentForm(form.FormText);
+              }
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Error loading initial data:', error);
+        toast.error('Failed to load audit data');
+      } finally{
+        setIsLoading(false);
+      }
+    };
+  
+    loadInitialData();
+  }, [auditId, regulations]);
+
+  // Load current form when step changes
+  // Update the existing useEffect that loads forms when step changes
+useEffect(() => {
+  const loadForm = async () => {
+    if (!audit || currentStep >= audit.subsections.length) return;
+    
+    try {
+      const currentSubsection = audit.subsections[currentStep];
+      if (!currentSubsection) return;
+
+      const codeToFetch = currentSubsection.code;
+      const regsResponse = await fetch(`/api/regulations?code=${encodeURIComponent(codeToFetch)}`);
+      if (!regsResponse.ok) throw new Error('Failed to fetch regulation');
+      const regulation = await regsResponse.json();
+
+      if (regulation?.FormCode) {
+        const formsResponse = await fetch(`/api/forms?code=${encodeURIComponent(regulation.FormCode)}`);
+        if (!formsResponse.ok) throw new Error('Failed to fetch form');
+        const form = await formsResponse.json();
+        setCurrentForm(form.FormText);
+      }
+    } catch (error) {
+      console.error('Error loading form:', error);
+      toast.error('Failed to load form');
+    }
+  };
+
+  // Execute the async function
+  loadForm();
+}, [currentStep, audit]);
+
+  
+useEffect(() => {
+  sethasEdited(false);
+}, []);
+
+useEffect(() => {
+  sethasEdited(false);
+}, [auditId]);
+
+
+
+  // Define loadDeepQuestions as a regular function
+const loadDeepQuestions = useCallback(async () => {
+  try {
+    setDeepForm({});
+    // Check if audit and current subsection exist
+    if (!audit?.subsections || !audit.subsections[currentStep]) {
+      console.log('Audit or current subsection not available yet');
+      return;
+    }
+    
+    setIsLoading(true);
+    
+    const warnL = await fetch('/api/topk', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        cfrSubsection: audit?.subsections[currentStep]?.code
+      })
+    });
+    
+    console.log(warnL);
+    const Ls = await warnL.json();
+    const response = await fetch('/api/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        cfrSubsection: audit?.subsections[currentStep]?.code,
+        form: JSON.stringify(currentForm?.questions?.reduce((acc, question) => ({
+          ...acc,
+          [question.id]: {
+            id: question.id,
+            type: question.type.toLowerCase(),
+            question: question.text,
+            value: methods.getValues(`responses.${question.id}`)
+          }
+        }), {}) || {}),
+        warningLetters: Ls.warningLetters || []
+      })
+    });
+    
+    if (!response.ok) throw new Error('Failed to load deep questions');
+    
+    const deepFormData = await response.json();
+    console.log(deepFormData.form);
+    setDeepForm(deepFormData.form);
+  } catch (error) {
+    console.error('Error loading deep questions:', error);
+    toast.error('Failed to load additional validation questions');
+  } finally {
+    setIsLoading(false);
+  }
+}, [audit, currentStep, currentForm]);
+
+
+useEffect(() => {
+  if (audit?.subsections && audit.subsections[currentStep] && currentForm) {
+    loadDeepQuestions();
+  }
+}, [currentStep, audit, currentForm, loadDeepQuestions]);
+
+  // Filtered regulations for search
+  const filteredRegulations = useMemo(() => {
+    if (!searchTerm) return [];
+    
+    // Clean and normalize the search term
+    const cleanedSearch = searchTerm.toLowerCase()
+      .replace(/^21\s*cfr\s*/i, '')  // Remove "21 CFR" prefix if present
+      .trim()
+      .replace(/\s+/g, '');  // Remove all whitespace
+    
+    // If the search is empty after cleaning, return empty array
+    if (!cleanedSearch) return [];
+
+    // Helper function to normalize a CFR code for comparison
+    const normalizeCfrCode = (code: string) => {
+      return code.toLowerCase().replace(/\s+/g, '');
+    };
+
+    // Helper function to check if a search term matches a CFR code pattern
+    const isNumberSearch = /^\d/.test(cleanedSearch);
+
+     return regulations
+      .filter(code => {
+        const normalizedCode = normalizeCfrCode(code);
+        
+        // If searching with numbers, prioritize code matching
+        if (isNumberSearch) {
+          // Match partial numbers in the code
+          // This will match "1" with "1.234", "12" with "12.345", etc.
+          const codeNumbers = normalizedCode.match(/\d+\.?\d*/g) || [];
+          const searchNumbers = cleanedSearch.match(/\d+\.?\d*/g) || [];
+          
+          return searchNumbers.every(searchNum => 
+            codeNumbers.some(codeNum => codeNum.startsWith(searchNum))
+          );
+        } else {
+          // For text searches, just check the code
+          return normalizedCode.includes(cleanedSearch);
+        }
+      })
+      .slice(0, 10)  // Limit to 10 results
+      .map(code => ({
+        code,
+        description: '', // No description available
+        hasForm: true
+      }));
+  }, [searchTerm]);
+
+  // Form Management
+  const methods = useForm({
+    defaultValues: {
+      responses: currentForm?.questions?.reduce((acc, question) => ({
+        ...acc,
+        [question.id]: question.type === 'CHECKBOX' ? [] : ''
+      }), {}),
+      deepResponses: deepForm?.questions?.reduce((acc, question) => ({
+        ...acc,
+        [question.id]: question.type === 'CHECKBOX' ? [] : ''
+      }), {})
+    },
+    mode: "onChange",
+  });
+
   const handleDeleteConfirm = async () => {
     if (!auditToDelete) return;
   
@@ -213,68 +687,6 @@ const AuditComponent = () => {
     }
   };
 
-  const RegulationDialog = () => {
-    const [regulation, setRegulation] = useState(null);
-    const [isLoading, setIsLoading] = useState(false);
-    const [error, setError] = useState(null);
-  
-    useEffect(() => {
-      if (!audit?.subsections[currentStep]?.code || !showRegulationDialog) return;
-  
-      const fetchRegulation = async () => {
-        try {
-          setIsLoading(true);
-          setError(null);
-          const codeToFetch = audit.subsections[currentStep].code;
-          const response = await fetch(`/api/regulations?code=${encodeURIComponent(codeToFetch)}`);
-          
-          if (!response.ok) {
-            throw new Error('Failed to fetch regulation');
-          }
-          
-          const data = await response.json();
-          setRegulation(data);
-        } catch (err) {
-          setError(err.message);
-          toast.error('Failed to load regulation');
-        } finally {
-          setIsLoading(false);
-        }
-      };
-  
-      fetchRegulation();
-    }, [audit?.subsections[currentStep]?.code, showRegulationDialog]);
-  
-    if (!audit?.subsections[currentStep]?.code) return null;
-  
-    return (
-      <Dialog open={showRegulationDialog} onOpenChange={setShowRegulationDialog}>
-        <DialogContent className="min-w-[900px]">
-          <DialogHeader>
-            <DialogTitle>{audit.subsections[currentStep].code}</DialogTitle>
-          </DialogHeader>
-          <ScrollArea className="h-[60vh] w-auto min-w-[800px] p-8">
-            <div className="p-4 space-y-4">
-              {isLoading ? (
-                <div className="flex justify-center">
-                  <Loader2 className="h-8 w-8 animate-spin" />
-                </div>
-              ) : error ? (
-                <p className="text-red-500">{error}</p>
-              ) : (
-                <p className="text-sm whitespace-pre-wrap font-mono">
-                  {regulation?.RegText || 'Regulation text not found'}
-                </p>
-              )}
-            </div>
-          </ScrollArea>
-          <DialogFooter>
-            <Button onClick={() => setShowRegulationDialog(false)}>Close</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    );
-  };
 
   const handleEditExistingAuditName = async (auditId: string) => {
     try {
@@ -329,20 +741,7 @@ const AuditComponent = () => {
     </Dialog>
   );
 
-  // Form Management
-  const methods = useForm({
-    defaultValues: {
-      responses: currentForm?.questions.reduce((acc, question) => ({
-        ...acc,
-        [question.id]: question.type === 'CHECKBOX' ? [] : ''
-      }), {})
-    }
-  });
-
-  useEffect(() => {
-    sethasEdited(false);
-  }, [currentForm]);
-
+  
   const getDefaultFormFieldValue = (question: Question): string => {
     switch (question.type) {
       case 'BOOLEAN':
@@ -366,190 +765,7 @@ const AuditComponent = () => {
     }
   };
 
-  useEffect(() => {
-    if (!currentForm) return;
   
-    let initialResponses = {};
-  
-    // First, try to get existing responses from audit
-    if (audit?.subsections[currentStep]?.responses) {
-      initialResponses = audit.subsections[currentStep].responses.reduce(
-        (acc, curr) => ({
-          ...acc,
-          [curr.questionId]: curr.answer
-        }),
-        {}
-      );
-    }
-  
-    // For any missing responses, fill with defaults
-    currentForm.questions.forEach(question => {
-      if (!initialResponses[question.id]) {
-        initialResponses[question.id] = getDefaultFormFieldValue(question);
-      }
-    });
-  
-    methods.reset({ 
-      responses: initialResponses,
-      auditName: audit?.name || `Audit ${new Date().toLocaleDateString()}`
-    });
-  }, [currentForm, currentStep, audit]);
-
-  // Load existing audits
-  useEffect(() => {
-    const loadExistingAudits = async () => {
-      try {
-        const response = await fetch('/api/audit');
-        if (!response.ok) throw new Error('Failed to fetch existing audits');
-        const audits = await response.json();
-        setExistingAudits(audits);
-      } catch (error) {
-        console.error('Error loading existing audits:', error);
-        toast.info('Failed to load existing audits');
-      }
-    };
-
-    if (showExistingAudits) {
-      loadExistingAudits();
-    }
-  }, [showExistingAudits]);  
-
-  // Load initial data
-  useEffect(() => {
-    const loadInitialData = async () => {
-      try {
-        setIsLoading(true);
-  
-        // Load regulations if not cached
-        if (!cachedRegulations) {
-          const regsResponse = await fetch('/api/regulations');
-          if (!regsResponse.ok) throw new Error('Failed to fetch regulations');
-          cachedRegulations = await regsResponse.json();
-        }
-        
-        setRegulations(cachedRegulations);
-  
-        // Load existing audit if ID is provided
-        if (auditId) {
-          const auditResponse = await fetch(`/api/audit?id=${auditId}`);
-          if (!auditResponse.ok) throw new Error('Failed to load audit');
-          
-          const auditData = await auditResponse.json();
-          setAudit(auditData);
-          setShowExistingAudits(false);
-          
-          if (auditData?.subsections) {
-            setSelectedCodes(auditData.subsections.map((s: AuditSubsection) => s.code));
-            setCurrentStep(auditData.checkpoint || 0);
-            
-            // Load form for current checkpoint
-            const currentSubsection = auditData.subsections[auditData.checkpoint || 0];
-            if (currentSubsection) {
-              const codeToFetch = currentSubsection.code;
-              const regsResponse = await fetch(`/api/regulations?code=${encodeURIComponent(codeToFetch)}`);
-              if (!regsResponse.ok) throw new Error('Failed to fetch regulation');
-              const regulation = await regsResponse.json();
-  
-              if (regulation?.FormCode) {
-                const formsResponse = await fetch(`/api/forms?code=${encodeURIComponent(regulation.FormCode)}`);
-                if (!formsResponse.ok) throw new Error('Failed to fetch form');
-                const form = await formsResponse.json();
-                setCurrentForm(form.FormText);
-              }
-            }
-          }
-        }
-      } catch (error) {
-        console.error('Error loading initial data:', error);
-        toast.error('Failed to load audit data');
-      } finally {
-        setIsLoading(false);
-      }
-    };
-  
-    loadInitialData();
-  }, [auditId, regulations]);
-
-  // Load current form when step changes
-  useEffect(() => {
-    const loadForm = async () => {
-      if (!audit || currentStep >= audit.subsections.length) return;
-      
-      try {
-        const currentSubsection = audit.subsections[currentStep];
-        if (!currentSubsection) return;
-  
-        const codeToFetch = currentSubsection.code;
-        const regsResponse = await fetch(`/api/regulations?code=${encodeURIComponent(codeToFetch)}`);
-        if (!regsResponse.ok) throw new Error('Failed to fetch regulation');
-        const regulation = await regsResponse.json();
-  
-        if (regulation?.FormCode) {
-          const formsResponse = await fetch(`/api/forms?code=${encodeURIComponent(regulation.FormCode)}`);
-          if (!formsResponse.ok) throw new Error('Failed to fetch form');
-          const form = await formsResponse.json();
-          setCurrentForm(form.FormText);
-        }
-      } catch (error) {
-        console.error('Error loading form:', error);
-        toast.error('Failed to load form');
-      }
-    };
-  
-    // Execute the async function
-    loadForm();
-  }, [currentStep, audit]);
-
-  // Filtered regulations for search
-  const filteredRegulations = useMemo(() => {
-    if (!searchTerm) return [];
-    
-    // Clean and normalize the search term
-    const cleanedSearch = searchTerm.toLowerCase()
-      .replace(/^21\s*cfr\s*/i, '')  // Remove "21 CFR" prefix if present
-      .trim()
-      .replace(/\s+/g, '');  // Remove all whitespace
-    
-    // If the search is empty after cleaning, return empty array
-    if (!cleanedSearch) return [];
-
-    // Helper function to normalize a CFR code for comparison
-    const normalizeCfrCode = (code: string) => {
-      return code.toLowerCase().replace(/\s+/g, '');
-    };
-
-    // Helper function to check if a search term matches a CFR code pattern
-    const isNumberSearch = /^\d/.test(cleanedSearch);
-
-    return Object.entries(regulations)
-      .filter(([code, description]) => {
-        const normalizedCode = normalizeCfrCode(code);
-        
-        // If searching with numbers, prioritize code matching
-        if (isNumberSearch) {
-          // Match partial numbers in the code
-          // This will match "1" with "1.234", "12" with "12.345", etc.
-          const codeNumbers = normalizedCode.match(/\d+\.?\d*/g) || [];
-          const searchNumbers = cleanedSearch.match(/\d+\.?\d*/g) || [];
-          
-          return searchNumbers.every(searchNum => 
-            codeNumbers.some(codeNum => codeNum.startsWith(searchNum))
-          );
-        } else {
-          // For text searches, check both code and description
-          return normalizedCode.includes(cleanedSearch) ||
-            description.toLowerCase().includes(cleanedSearch);
-        }
-      })
-      .slice(0, 10)  // Limit to 10 results
-      .map(([code, description]) => ({
-        code,
-        description: description.length > 100 ? 
-          `${description.substring(0, 100)}...` : description,
-        hasForm: true
-      }));
-  }, [searchTerm]);
-
   const handleDeleteAudit = async (id: string) => {
     try {
       const response = await fetch(`/api/audit?id=${id}`, {
@@ -569,6 +785,7 @@ const AuditComponent = () => {
   };
 
   const downloadReport = () => {
+    sethasEdited(false);
     setShowReportDialog(true);
   };
   
@@ -583,6 +800,12 @@ const AuditComponent = () => {
             className="w-full min-w-[800px] min-h-[600px] overflow-y-auto p-8 bg-white rounded-lg shadow-lg"
           >
             <DialogTitle className="sr-only">Audit Report</DialogTitle>
+            <button 
+              className="absolute top-2 right-2 text-black hover:text-gray-800"
+              onClick={() => setShowReportDialog(false)}
+            >
+              ✖
+            </button>
             <AuditReport audit={audit} />
           </DialogContent>
         </Dialog>
@@ -623,7 +846,8 @@ const AuditComponent = () => {
       subsections: audit.subsections.map(section => ({
         code: section.code,
         status: section.status,
-        validationResults: section.validationResults
+        validationResults: section.validationResults,
+        deepValidationResults: section.deepValidationResults
       }))
     }, null, 2);
 
@@ -648,17 +872,15 @@ const AuditComponent = () => {
   };
 
   const validateAndContinue = async () => {
-    if (!audit || !currentForm) return;
-    sethasEdited(false);
-    setIsValidating(true);
+  if (!audit || !currentForm) return;
+  sethasEdited(false);
+  setIsValidating(true);
   try {
     // Get the current form values
-    const formValues = methods.getValues('responses'); // Make sure to specify 'responses'
-
-    console.log('Form values being sent:', formValues); // Add this for debugging
-
+    const formValues = methods.getValues('responses');
     const currentSubsection = audit.subsections[currentStep];
     
+    // Regular validation
     const response = await fetch('/api/validate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -668,61 +890,106 @@ const AuditComponent = () => {
         form: currentForm
       })
     });
-  
-      if (!response.ok) throw new Error('Validation failed');
-  
-      const validationResults = await response.json();
-      
-      // Create updated subsections array with validation results
-      const updatedSubsections = audit.subsections.map((s, idx) => 
-        idx === currentStep
-          ? { 
-              ...s, 
-              status: validationResults.passed.every(result => result === true) ? 'completed' : 'flagged',
-              validationResults: {
-                passed: validationResults.passed || [],
-                description: validationResults.description || [],
-              },
-              responses: Object.entries(formValues).map(([questionId, answer]) => ({
-                questionId,
-                answer,
-                lastModified: new Date()
-              }))
-            }
-          : s
-      );
-  
-      const updatedAudit = {
-        ...audit,
-        checkpoint: currentStep,
-        subsections: updatedSubsections
-      };
-  
-      const saveResponse = await fetch(`/api/audit`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updatedAudit)
-      });
-  
-      if (!saveResponse.ok) throw new Error('Failed to save validation results');
-  
-      const savedAudit = await saveResponse.json();
-      setAudit(savedAudit);
-      
-      if (validationResults.passed.every(result => result === true)) {
-        toast.info('Section validated successfully');
-        setShowReportDialog(true);
-      } else {
-        toast.info('Validation failed. Please review the issues.');
-        setShowReportDialog(true);
+
+    if (!response.ok) throw new Error('Validation failed');
+    const validationResults = await response.json();
+    
+    // Deep validation if deep form exists
+    let deepValidationResults = { passed: [], description: [] };
+    if (deepForm) {
+      try {
+        const deepResponse = await fetch('/api/validate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            code: currentSubsection.code,
+            responses: formValues,
+            form: deepForm
+          })
+        });
+        
+        if (deepResponse.ok) {
+          deepValidationResults = await deepResponse.json();
+        }
+      } catch (error) {
+        console.error('Error during deep validation:', error);
       }
-    } catch (error) {
-      console.error('Error during validation:', error);
-      toast.info('Failed to validate section');
-    } finally {
-      setIsValidating(false);
     }
-  };
+    
+    // Separate responses into main and deep
+    const mainResponses = [];
+    const deepResponses = [];
+    
+    Object.entries(formValues).forEach(([questionId, answer]) => {
+      const responseObj = {
+        questionId,
+        answer,
+        lastModified: new Date()
+      };
+      
+      if (deepForm?.questions.some(q => q.id === questionId)) {
+        deepResponses.push(responseObj);
+      } else {
+        mainResponses.push(responseObj);
+      }
+    });
+    
+    // Determine overall status based on both validations
+    const mainPassed = validationResults.passed.every(result => result === true);
+    const deepPassed = deepValidationResults.passed.every(result => result === true);
+    const overallStatus = mainPassed && deepPassed ? 'completed' : 'flagged';
+    
+    // Create updated subsections array with validation results
+    const updatedSubsections = audit.subsections.map((s, idx) => 
+      idx === currentStep
+        ? { 
+            ...s, 
+            status: overallStatus,
+            validationResults: {
+              passed: validationResults.passed || [],
+              description: validationResults.description || [],
+            },
+            deepValidationResults: {
+              passed: deepValidationResults.passed || [],
+              description: deepValidationResults.description || [],
+            },
+            responses: mainResponses,
+            deepResponses: deepResponses
+          }
+        : s
+    );
+
+    const updatedAudit = {
+      ...audit,
+      checkpoint: currentStep,
+      subsections: updatedSubsections
+    };
+
+    const saveResponse = await fetch(`/api/audit`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updatedAudit)
+    });
+
+    if (!saveResponse.ok) throw new Error('Failed to save validation results');
+
+    const savedAudit = await saveResponse.json();
+    setAudit(savedAudit);
+    
+    if (mainPassed && deepPassed) {
+      toast.info('Section validated successfully');
+      setShowReportDialog(true);
+    } else {
+      toast.info('Validation found issues. Please review.');
+      setShowReportDialog(true);
+    }
+  } catch (error) {
+    console.error('Error during validation:', error);
+    toast.info('Failed to validate section');
+  } finally {
+    setIsValidating(false);
+  }
+};
 
   
   // Handle adding CFR code
@@ -738,22 +1005,36 @@ const AuditComponent = () => {
   const handleRemoveCode = (code: string) => {
     setSelectedCodes(prev => prev.filter(c => c !== code));
   };
-
   // Handle saving audit progress
   const handleSave = async () => {
     if (!audit) return;
     sethasEdited(true);
     setIsSaving(true);
     try {
-      const currentSubsection = audit.subsections[currentStep];
       const formValues = methods.getValues().responses;
       
-      const updatedResponses = Object.entries(formValues).map(([questionId, answer]) => ({
-        questionId,
-        answer,
-        lastModified: new Date()
-      }));
-
+      // Separate deep responses from regular responses
+      const mainResponses = [];
+      const deepResponses = [];
+      
+      // Process all form values and categorize them
+      Object.entries(formValues).forEach(([questionId, answer]) => {
+        // Determine if this is a deep question based on question ID format
+        // You may need to adjust this logic based on how you identify deep questions
+        const responseObj = {
+          questionId,
+          answer,
+          lastModified: new Date()
+        };
+        
+        // Check if this is a deep question - adjust this condition based on your ID structure
+        if (deepForm?.questions.some(q => q.id === questionId)) {
+          deepResponses.push(responseObj);
+        } else {
+          mainResponses.push(responseObj);
+        }
+      });
+  
       const updatedAudit = {
         ...audit,
         checkpoint: currentStep,
@@ -761,20 +1042,21 @@ const AuditComponent = () => {
           idx === currentStep
             ? { 
                 ...s, 
-                responses: updatedResponses, 
+                responses: mainResponses, 
+                deepResponses: deepResponses,
                 status: 'in_progress',
                 comment: s.comment // Preserve the comment
               }
             : s
         )
       };
-
+  
       const response = await fetch(`/api/audit`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updatedAudit)
       });
-
+  
       if (!response.ok) throw new Error('Failed to save audit');
       
       const savedAudit = await response.json();
@@ -812,9 +1094,12 @@ const AuditComponent = () => {
   // Handle form validation
   const handleValidate = async () => {
     if (!audit || !currentForm) return;
-
+    sethasEdited(false);
     try {
       const formValues = methods.getValues().responses;
+
+      const deepValue = methods.getValues().deepResponses;
+
       const currentSubsection = audit.subsections[currentStep];
       
       const response = await fetch('/api/validate', {
@@ -829,8 +1114,20 @@ const AuditComponent = () => {
 
       if (!response.ok) throw new Error('Validation failed');
 
+      const deepResponse = await fetch('/api/validate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          code: currentSubsection.code,
+          responses: deepValue,
+          form: deepForm
+        })
+      });
+
+      if (!deepResponse.ok) throw new Error('Validation failed');
+
       const validationResults = await response.json();
-      
+      const deepValidationResults = await deepResponse.json();
       const updatedAudit = {
         ...audit,
         checkpoint: currentStep,
@@ -838,10 +1135,14 @@ const AuditComponent = () => {
           idx === currentStep
             ? { 
                 ...s, 
-                status: validationResults.passed.every(result => result === true) ? 'completed' : 'flagged',
+                status: validationResults.passed.every(result => result === true) && deepValidationResults.passed.every(result => result === true) ? 'completed' : 'flagged',
                 validationResults: {
                   passed: validationResults.passed || [],
                   description: validationResults.description || [],
+                },
+                deepValidationResults: {
+                  passed: deepValidationResults.passed || [],
+                  description: deepValidationResults.description || [],
                 },
                 responses: Object.entries(formValues).map(([questionId, answer]) => ({
                   questionId,
@@ -864,7 +1165,7 @@ const AuditComponent = () => {
       const savedAudit = await saveResponse.json();
       setAudit(savedAudit);
       
-      if (validationResults.passed.every(result => result === true)) {
+      if (validationResults.passed.every(result => result === true) && deepValidationResults.passed.every(result => result === true)) {
         toast.info('Section validated successfully');
       } else {
         toast.info('Validation failed. Please review the issues.');
@@ -941,7 +1242,6 @@ const AuditComponent = () => {
     );
   }
 
-  // Show existing audits
   // Show existing audits
 if (showExistingAudits) {
   return (
@@ -1228,153 +1528,59 @@ if (showExistingAudits) {
     );
   }
 
-  const MetadataDialog = () => {
-    const [localMetadata, setLocalMetadata] = useState(audit?.metadata || {});
-
-  const handleSave = async () => {
-    if (!audit) return;
-
-    try {
-      const updatedAudit = {
-        ...audit,
-        metadata: localMetadata
-      };
-
-      const response = await fetch('/api/audit', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updatedAudit)
-      });
-
-      if (!response.ok) throw new Error('Failed to update metadata');
-
-      const savedAudit = await response.json();
-      setAudit(savedAudit);
-      setShowMetadataDialog(false);
-      toast.success('Audit details updated successfully');
-    } catch (error) {
-      console.error('Error updating audit details:', error);
-      toast.error('Failed to update audit details');
-    }
-  };
-
-  return (
-    <Dialog open={showMetadataDialog} onOpenChange={setShowMetadataDialog}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Edit Audit Details</DialogTitle>
-        </DialogHeader>
-        
-        <div className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="facility">Facility Name</Label>
-            <Input
-              id="facility"
-              placeholder="Enter facility name"
-              value={localMetadata.facility || ''}
-              onChange={(e) => setLocalMetadata({ ...localMetadata, facility: e.target.value })}
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="auditType">Audit Type</Label>
-            <Input
-              id="auditType"
-              placeholder="e.g., Annual, Quarterly, Special"
-              value={localMetadata.auditType || ''}
-              onChange={(e) => setLocalMetadata({ ...localMetadata, auditType: e.target.value })}
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="department">Department</Label>
-            <Input
-              id="department"
-              placeholder="Enter department name"
-              value={localMetadata.department || ''}
-              onChange={(e) => setLocalMetadata({ ...localMetadata, department: e.target.value })}
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="reviewer">Lead Reviewer</Label>
-            <Input
-              id="reviewer"
-              placeholder="Enter lead reviewer's name"
-              value={localMetadata.reviewer || ''}
-              onChange={(e) => setLocalMetadata({ ...localMetadata, reviewer: e.target.value })}
-            />
-          </div>
-        </div>
-
-        <DialogFooter className="flex justify-end gap-2">
-          <Button variant="outline" onClick={() => setShowMetadataDialog(false)}>
-            Cancel
-          </Button>
-          <Button onClick={handleSave}>
-            Save
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-  };
-  
 
   // Main audit form UI
   return (
-    
     <FormProvider {...methods}>
       <div className="container mx-auto p-6 space-y-6">
         <Card>
           <CardHeader>
             <div className="flex items-center justify-between">
               <div>
-              <div className="flex items-center justify-between">
-              {isEditingName ? (
-                <div className="flex items-center space-x-2 w-full">
-                  <Input
-                    {...methods.register('auditName')}
-                    defaultValue={audit?.name}
-                    className="flex-grow"
-                  />
-                  <Button onClick={handleEditAuditName}>Save</Button>
-                  <Button 
-                    variant="outline" 
-                    onClick={() => setIsEditingName(false)}
-                  >
-                    Cancel
-                  </Button>
+                <div className="flex items-center justify-between">
+                  {isEditingName ? (
+                    <div className="flex items-center space-x-2 w-full">
+                      <Input
+                        value={audit?.name || ''}
+                        onChange={(e) => methods.setValue('auditName', e.target.value)}
+                        className="flex-grow"
+                      />
+                      <Button onClick={handleEditAuditName}>Save</Button>
+                      <Button 
+                        variant="outline" 
+                        onClick={() => setIsEditingName(false)}
+                      >
+                        Cancel
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center space-x-2">
+                      <CardTitle>{audit?.name}</CardTitle>
+                      <Button 
+                        variant="ghost" 
+                        size="sm" 
+                        onClick={() => setIsEditingName(true)}
+                      >
+                        <Edit className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  )}
+                  <CardDescription>
+                    Section {currentStep + 1} of {audit?.subsections.length} -  
+                    <span className="text-purple-700 text-xl"> 
+                      {" "}{audit?.subsections[currentStep]?.code}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="bg-white text-black"
+                        onClick={() => setShowRegulationDialog(true)}
+                      >
+                        Read Subsection Regulation
+                        <Info className="h-4 w-4 text-muted-foreground hover:text-primary" />
+                      </Button>
+                    </span>
+                  </CardDescription>
                 </div>
-              ) : (
-                <div className="flex items-center space-x-2">
-                  <CardTitle>{audit?.name}</CardTitle>
-                  <Button 
-                    variant="ghost" 
-                    size="sm" 
-                    onClick={() => setIsEditingName(true)}
-                  >
-                    <Edit className="h-4 w-4" />
-                  </Button>
-                </div>
-              )}
-                <CardDescription>
-                  Section {currentStep + 1} of {audit?.subsections.length} -  
-                  <span className="text-purple-700 text-xl"> 
-                     {" "}{audit?.subsections[currentStep]?.code}
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className = "bg-white text-black"
-                      onClick={() => setShowRegulationDialog(true)}
-                    >
-                      Read Subsection Regulation
-                      <Info className="h-4 w-4 text-muted-foreground hover:text-primary" />
-                    </Button>
-                  </span>
-                </CardDescription>
-
-              </div>
               </div>
               <div className="flex items-center gap-2">
                 <Button
@@ -1418,7 +1624,7 @@ if (showExistingAudits) {
                 {/* View Report Button */}
                 <Button
                   variant="outline"
-                  onClick={() => {!hasEdited? setShowReportDialog(true): toast.info("You have made changes, validate the new form to view latest results.");}}
+                  onClick={() => {!hasEdited ? setShowReportDialog(true) : toast.info("You have made changes, validate the new form to view latest results.");}}
                   disabled={!audit}
                 >
                   <FileText className="mr-2 h-4 w-4" />
@@ -1431,16 +1637,14 @@ if (showExistingAudits) {
                   View Existing Audits
                 </Button>
                 <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  // Show a dialog with the AuditMetadataForm
-                  // You'll need to create a new state for this
-                  setShowMetadataDialog(true);
-                }}
-              >
-                Edit Metadata
-              </Button>
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setShowMetadataDialog(true);
+                  }}
+                >
+                  Edit Metadata
+                </Button>
                 {/* Validate and Continue Button */}
                 <Button 
                   onClick={validateAndContinue}
@@ -1458,270 +1662,587 @@ if (showExistingAudits) {
               </div>
             </div>
             <div className="flex items-center justify-center pt-6">
-            {currentForm && ( // Add this conditional check
-              <AutoFill 
-                formFields={currentForm.questions.reduce((acc, question) => ({
-                  ...acc,
-                  [question.id]: {
-                    id: question.id,
-                    type: question.type.toLowerCase(),
-                    question: question.text,
-                    value: methods.getValues(`responses.${question.id}`)
-                  }
-                }), {})}
-                currentValues={methods.getValues().responses}
-                onAutofill={(values) => {
-                  Object.entries(values).forEach(([fieldId, value]) => {
-                    methods.setValue(`responses.${fieldId}`, value);
-                  });
-                  toast.success('Form fields updated');
-                }}
-              />
-            )}
-                </div>
+              {(currentForm || deepForm) && (
+                <AutoFill 
+                  formFields={{
+                    ...currentForm?.questions?.reduce((acc, question) => ({
+                      ...acc,
+                      [question.id]: {
+                        id: question.id,
+                        type: question.type.toLowerCase(),
+                        question: question.text,
+                        value: methods.getValues(`responses.${question.id}`)
+                      }
+                    }), {}),
+                    ...deepForm?.questions?.reduce((acc, question) => ({
+                      ...acc,
+                      [`deep_${question.id}`]: {
+                        id: `deep_${question.id}`,
+                        type: question.type.toLowerCase(),
+                        question: question.text,
+                        value: methods.getValues(`deepResponses.${question.id}`)
+                      }
+                    }), {})
+                  }}
+                  currentValues={{
+                    ...methods.getValues().responses,
+                    ...methods.getValues().deepResponses
+                  }}
+                  onAutofill={(values) => {
+                    Object.entries(values).forEach(([fieldId, value]) => {
+                      if (fieldId.startsWith('deep_')) {
+                        const actualId = fieldId.replace('deep_', '');
+                        methods.setValue(`deepResponses.${actualId}`, value);
+                      } else {
+                        methods.setValue(`responses.${fieldId}`, value);
+                      }
+                    });
+                    toast.success('Form fields updated');
+                  }}
+                />
+              )}
+            </div>
           </CardHeader>
           
           <CardContent>
-            <div className="space-y-8">
-              
-              {/* Form Fields */}
-              {currentForm && (
-                <div className="space-y-6">
-                  {currentForm.questions.map((question) => (
-                    <FormField
-                      key={question.id}
-                      control={methods.control}
-                      name={`responses.${question.id}`}
-                      render={({ field }) => {
-                        const defaultValue = (() => {
-                          switch (question.type) {
-                            case 'BOOLEAN':
-                              return 'false';
-                            case 'NUMERIC':
-                              return question.range?.min?.toString() || '0';
-                            case 'DATE':
-                              return new Date().toISOString().split('T')[0];
-                            case 'TIME':
-                              return '00:00';
-                            case 'SELECT':
-                              return question.options?.[0] || '';
-                            case 'CHECKBOX':
-                              return JSON.stringify([]);
-                            case 'TEXT':
-                            default:
-                              return '';
-                          }
-                        })();
+            <div className="flex gap-6">
+              {/* Standard Form */}
+              <div className="space-y-8 flex-1">
+                <h3 className="text-lg font-semibold">Standard Form</h3>
+                {/* Form Fields */}
+                {currentForm && (
+                  <div className="space-y-6">
+                    {currentForm.questions.map((question) => (
+                      <FormField
+                        key={question.id}
+                        control={methods.control}
+                        name={`responses.${question.id}`}
+                        render={({ field }) => {
+                          const defaultValue = (() => {
+                            switch (question.type) {
+                              case 'BOOLEAN':
+                                return 'false';
+                              case 'NUMERIC':
+                                return question.range?.min?.toString() || '0';
+                              case 'DATE':
+                                return new Date().toISOString().split('T')[0];
+                              case 'TIME':
+                                return '00:00';
+                              case 'SELECT':
+                                return question.options?.[0] || '';
+                              case 'CHECKBOX':
+                                return JSON.stringify([]);
+                              case 'TEXT':
+                              default:
+                                return '';
+                            }
+                          })();
 
-                        return (
-                          <FormItem>
-                            <FormLabel className="flex items-center justify-between">
-                              <span>
-                                {question.text}
-                                <span className="ml-2 text-sm text-muted-foreground">
-                                  ({question.cfr_reference})
+                          return (
+                            <FormItem>
+                              <FormLabel className="flex items-center justify-between">
+                                <span>
+                                  {question.text}
+                                  <span className="ml-2 text-sm text-muted-foreground">
+                                    ({question.cfr_reference})
+                                  </span>
                                 </span>
-                              </span>
-                            </FormLabel>
-                            <div className="space-y-2">
-                              {/* Does not apply checkbox */}
-                              <div className="flex items-center space-x-2">
-                                <Checkbox
-                                  checked={field.value === "Does not apply"}
-                                  onCheckedChange={(checked) => {
-                                    if (checked) {
-                                      field.onChange("Does not apply");
-                                    } else {
-                                      // Reset to default value when unchecked
-                                      field.onChange(getDefaultFormFieldValue(question));
-                                    }
-                                  }}
-                                />
-                                <Label>Does not apply</Label>
-                              </div>
+                              </FormLabel>
+                              <div className="space-y-2">
+                                {/* Does not apply checkbox */}
+                                <div className="flex items-center space-x-2">
+                                  <Checkbox
+                                    checked={field.value === "Does not apply"}
+                                    onCheckedChange={(checked) => {
+                                      sethasEdited(true);
+                                      if (checked) {
+                                        field.onChange("Does not apply");
+                                      } else {
+                                        // Reset to default value when unchecked
+                                        field.onChange(getDefaultFormFieldValue(question));
+                                      }
+                                    }}
+                                  />
+                                  <Label>Does not apply</Label>
+                                </div>
 
-                              {/* Only show the actual form field if "Does not apply" is not checked */}
-                              {field.value !== "Does not apply" && (
-                                <FormControl>
-                                {(() => {
-                                  switch (question.type) {
-                                    case 'NUMERIC':
-                                      return (
-                                        <Input
-                                          type="number"
-                                          {...field}
-                                          value={field.value || ''}  // Ensure value is never undefined
-                                          min={question.range?.min}
-                                          max={question.range?.max}
-                                          placeholder={`Enter number ${question.range ? `(${question.range.min}-${question.range.max})` : ''}`}
-                                        />
-                                      );
-                                    
-                                    case 'DATE':
-                                      return (
-                                        <Input
-                                          type="date"
-                                          {...field}
-                                          value={field.value || ''}  // Ensure value is never undefined
-                                        />
-                                      );
-                                    
-                                    case 'TIME':
-                                      return (
-                                        <Input
-                                          type="time"
-                                          {...field}
-                                          value={field.value || ''}  // Ensure value is never undefined
-                                        />
-                                      );
-                                    
-                                    case 'SELECT':
-                                      return (
-                                        <Select
-                                          onValueChange={field.onChange}
-                                          value={field.value || ''}  // Ensure value is never undefined
-                                          defaultValue={question.options?.[0] || ''}
-                                        >
-                                          <SelectTrigger>
-                                            <SelectValue placeholder="Select an option" />
-                                          </SelectTrigger>
-                                          <SelectContent>
-                                            {question.options?.map((option) => (
-                                              <SelectItem key={option} value={option}>
-                                                {option}
-                                              </SelectItem>
-                                            ))}
-                                          </SelectContent>
-                                        </Select>
-                                      );
+                                {/* Only show the actual form field if "Does not apply" is not checked */}
+                                {field.value !== "Does not apply" && (
+                                  <FormControl>
+                                    {(() => {
+                                      switch (question.type) {
+                                        case 'NUMERIC':
+                                          return (
+                                            <Input
+                                              type="number"
+                                              {...field}
+                                              value={field.value || ''}  // Ensure value is never undefined
+                                              min={question.range?.min}
+                                              max={question.range?.max}
+                                              onChange={(e) => {
+                                                sethasEdited(true);
+                                                field.onChange(e);
+                                              }}
+                                              placeholder={`Enter number ${question.range ? `(${question.range.min}-${question.range.max})` : ''}`}
+                                            />
+                                          );
+                                        
+                                        case 'DATE':
+                                          return (
+                                            <Input
+                                              type="date"
+                                              onChange={(e) => {
+                                                sethasEdited(true);
+                                                field.onChange(e);
+                                              }}
+                                              {...field}
+                                              value={field.value || ''}  // Ensure value is never undefined
+                                            />
+                                          );
+                                        
+                                        case 'TIME':
+                                          return (
+                                            <Input
+                                              type="time"
+                                              onChange={(e) => {
+                                                sethasEdited(true);
+                                                field.onChange(e);
+                                              }}
+                                              {...field}
+                                              value={field.value || ''}  // Ensure value is never undefined
+                                            />
+                                          );
+                                        
+                                        case 'SELECT':
+                                          return (
+                                            <Select
+                                              onValueChange={(value) => {
+                                                field.onChange(value);
+                                                sethasEdited(true);
+                                              }}
+                                              value={field.value || ''}  // Ensure value is never undefined
+                                              defaultValue={question.options?.[0] || ''}
+                                            >
+                                              <SelectTrigger>
+                                                <SelectValue placeholder="Select an option" />
+                                              </SelectTrigger>
+                                              <SelectContent>
+                                                {question.options?.map((option) => (
+                                                  <SelectItem key={option} value={option} >
+                                                    {option}
+                                                  </SelectItem>
+                                                ))}
+                                              </SelectContent>
+                                            </Select>
+                                          );
 
-                                      case 'CHECKBOX':
-                                      return (
-                                        <div className="space-y-2">
-                                          {question.options?.map((option) => {
-                                            // Parse the current value as JSON, defaulting to empty array if invalid
-                                            const currentValues = (() => {
-                                              try {
-                                                return JSON.parse(field.value || '[]');
-                                              } catch {
-                                                return [];
-                                              }
-                                            })();
+                                        case 'CHECKBOX':
+                                          return (
+                                            <div className="space-y-2">
+                                              {question.options?.map((option) => {
+                                                // Parse the current value as JSON, defaulting to empty array if invalid
+                                                const currentValues = (() => {
+                                                  try {
+                                                    return JSON.parse(field.value || '[]');
+                                                  } catch {
+                                                    return [];
+                                                  }
+                                                })();
 
-                                            return (
-                                              <div key={option} className="flex items-center space-x-2">
+                                                return (
+                                                  <div key={option} className="flex items-center space-x-2">
+                                                    <Checkbox
+                                                      checked={currentValues.includes(option)}
+                                                      onCheckedChange={(checked) => {
+                                                        sethasEdited(true);
+                                                        const updatedValues = checked
+                                                          ? [...currentValues, option]
+                                                          : currentValues.filter((v) => v !== option);
+                                                        field.onChange(JSON.stringify(updatedValues));
+                                                      }}
+                                                    />
+                                                    <span>{option}</span>
+                                                  </div>
+                                                );
+                                              })}
+                                            </div>
+                                          );
+                                        
+                                        case 'BOOLEAN':
+                                          return (
+                                            <div className="flex items-center space-x-4">
+                                              <div className="flex items-center space-x-2">
                                                 <Checkbox
-                                                  checked={currentValues.includes(option)}
+                                                  checked={field.value === 'true'}
                                                   onCheckedChange={(checked) => {
-                                                    const updatedValues = checked
-                                                      ? [...currentValues, option]
-                                                      : currentValues.filter((v: string) => v !== option);
-                                                    field.onChange(JSON.stringify(updatedValues));
+                                                    sethasEdited(true);
+                                                    field.onChange(checked ? 'true' : 'false');
                                                   }}
                                                 />
-                                                <span>{option}</span>
+                                                <span>Yes</span>
                                               </div>
-                                            );
-                                          })}
-                                        </div>
-                                      );
-                                    
-                                    case 'BOOLEAN':
-                                      return (
-                                        <div className="flex items-center space-x-4">
-                                          <div className="flex items-center space-x-2">
-                                            <Checkbox
-                                              checked={field.value === 'true'}
-                                              onCheckedChange={(checked) => {
-                                                field.onChange(checked ? 'true' : 'false');
+                                              <div className="flex items-center space-x-2">
+                                                <Checkbox
+                                                  checked={field.value === 'false' || !field.value}  // Default to false if undefined
+                                                  onCheckedChange={(checked) => {
+                                                    sethasEdited(true);
+                                                    field.onChange(checked ? 'false' : 'true');
+                                                  }}
+                                                />
+                                                <span>No</span>
+                                              </div>
+                                            </div>
+                                          );
+                                        
+                                        case 'TEXT':
+                                        default:
+                                          return (
+                                            <Input
+                                              {...field}
+                                              onChange={(e) => {
+                                                sethasEdited(true);
+                                                field.onChange(e);
                                               }}
+                                              value={field.value || ''}  // Ensure value is never undefined
+                                              placeholder="Enter text"
                                             />
-                                            <span>Yes</span>
-                                          </div>
-                                          <div className="flex items-center space-x-2">
-                                            <Checkbox
-                                              checked={field.value === 'false' || !field.value}  // Default to false if undefined
-                                              onCheckedChange={(checked) => {
-                                                field.onChange(checked ? 'false' : 'true');
-                                              }}
-                                            />
-                                            <span>No</span>
-                                          </div>
-                                        </div>
-                                      );
-                                    
-                                    case 'TEXT':
-                                    default:
-                                      return (
-                                        <Input
-                                          {...field}
-                                          value={field.value || ''}  // Ensure value is never undefined
-                                          placeholder="Enter text"
-                                        />
-                                      );
-                                  }
-                                })()} 
-                                </FormControl>
-                              )}
-                            </div>
-                            <FormDescription>
-                              {question.type === 'NUMERIC' && question.range && (
-                                `Valid range: ${question.range.min} - ${question.range.max}`
-                              )}
-                            </FormDescription>
-                            <FormMessage />
-                          </FormItem>
-                        );
-                      }}
-                    />
-                  ))}
-                  {/* Add comment section for current subsection */}
-                  <FormField
-                    control={methods.control}
-                    name={`subsectionComment`}
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Auditor Comments</FormLabel>
-                        <FormControl>
-                          <textarea
-                            className="w-full min-h-[100px] p-2 border rounded-md"
-                            placeholder="Enter comments for this section..."
-                            value={audit?.subsections[currentStep]?.comment || ""}
-                            onChange={(e) => {
-                              if (!audit) return;
-                              const updatedSubsections = [...audit.subsections];
-                              updatedSubsections[currentStep] = {
-                                ...updatedSubsections[currentStep],
-                                comment: e.target.value
-                              };
-                              setAudit({
-                                ...audit,
-                                subsections: updatedSubsections
-                              });
-                            }}
-                          />
-                        </FormControl>
-                      </FormItem>
-                    )}
+                                          );
+                                      }
+                                    })()}
+                                  </FormControl>
+                                )}
+                              </div>
+                              <FormDescription>
+                                {question.type === 'NUMERIC' && question.range && (
+                                  `Valid range: ${question.range.min} - ${question.range.max}`
+                                )}
+                              </FormDescription>
+                              <FormMessage />
+                            </FormItem>
+                          );
+                        }}
+                      />
+                    ))}
+                  </div>
+                )}
+
+                <div className="mt-6">
+                  <ValidationResults 
+                    validationResults={audit?.subsections[currentStep]?.validationResults}
+                    subsectionStatus={audit?.subsections[currentStep]?.status}
                   />
                 </div>
-              )}
+              </div>
 
-              {/* Validation Results */}
-              <ValidationResults 
-                validationResults={audit?.subsections[currentStep]?.validationResults}
-                subsectionStatus={audit?.subsections[currentStep]?.status}
+              {/* Deep Form */}
+              <div className="space-y-8 flex-1 border-l pl-6">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-lg font-semibold">Edge Cases Form</h3>
+                  {loadingDeepForm && (
+                    <div className="flex items-center">
+                      <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                      <span className="text-sm text-muted-foreground">Loading edge cases form...</span>
+                    </div>
+                  )}
+                </div>
+                
+                {deepForm ? (
+                  <div className="space-y-6">
+                    {deepForm.questions?.map((question) => (
+                      <FormField
+                        key={`deep_${question.id}`}
+                        control={methods.control}
+                        name={`deepResponses.${question.id}`}
+                        render={({ field }) => {
+                          const defaultValue = (() => {
+                            switch (question.type) {
+                              case 'BOOLEAN':
+                                return 'false';
+                              case 'NUMERIC':
+                                return question.range?.min?.toString() || '0';
+                              case 'DATE':
+                                return new Date().toISOString().split('T')[0];
+                              case 'TIME':
+                                return '00:00';
+                              case 'SELECT':
+                                return question.options[0] || '';
+                              case 'CHECKBOX':
+                                return JSON.stringify([]);
+                              case 'TEXT':
+                              default:
+                                return '';
+                            }
+                          })();
+
+                          return (
+                            <FormItem>
+                              <FormLabel className="flex items-center justify-between">
+                                <span>
+                                  {question.text || question.question}
+                                  <span className="ml-2 text-sm text-muted-foreground">
+                                    ({question.cfr_reference})
+                                  </span>
+                                </span>
+                              </FormLabel>
+                              <div className="space-y-2">
+                                {/* Does not apply checkbox */}
+                                <div className="flex items-center space-x-2">
+                                  <Checkbox
+                                    checked={field.value === "Does not apply"}
+                                    onCheckedChange={(checked) => {
+                                      sethasEdited(true);
+                                      if (checked) {
+                                        field.onChange("Does not apply");
+                                      } else {
+                                        // Reset to default value when unchecked
+                                        field.onChange(getDefaultFormFieldValue(question));
+                                      }
+                                    }}
+                                  />
+                                  <Label>Does not apply</Label>
+                                </div>
+
+                                {/* Only show the actual form field if "Does not apply" is not checked */}
+                                {field.value !== "Does not apply" && (
+                                  <FormControl>
+                                    {(() => {
+                                      switch (question.type) {
+                                        case 'NUMERIC':
+                                          return (
+                                            <Input
+                                              type="number"
+                                              {...field}
+                                              value={field.value || ''}  // Ensure value is never undefined
+                                              min={question.range?.min}
+                                              max={question.range?.max}
+                                              onChange={(e) => {
+                                                sethasEdited(true);
+                                                field.onChange(e);
+                                              }}
+                                              placeholder={`Enter number ${question.range ? `(${question.range.min}-${question.range.max})` : ''}`}
+                                            />
+                                          );
+                                        
+                                        case 'DATE':
+                                          return (
+                                            <Input
+                                              type="date"
+                                              onChange={(e) => {
+                                                sethasEdited(true);
+                                                field.onChange(e);
+                                              }}
+                                              {...field}
+                                              value={field.value || ''}  // Ensure value is never undefined
+                                            />
+                                          );
+                                        
+                                        case 'TIME':
+                                          return (
+                                            <Input
+                                              type="time"
+                                              onChange={(e) => {
+                                                sethasEdited(true);
+                                                field.onChange(e);
+                                              }}
+                                              {...field}
+                                              value={field.value || ''}  // Ensure value is never undefined
+                                            />
+                                          );
+                                        
+                                        case 'SELECT':
+                                          return (
+                                            <Select
+                                              onValueChange={(value) => {
+                                                field.onChange(value);
+                                                sethasEdited(true);
+                                              }}
+                                              value={field.value || ''}  // Ensure value is never undefined
+                                              defaultValue={question.options?.[0] || ''}
+                                            >
+                                              <SelectTrigger>
+                                                <SelectValue placeholder="Select an option" />
+                                              </SelectTrigger>
+                                              <SelectContent>
+                                                {question.options?.map((option) => (
+                                                  <SelectItem key={option} value={option} >
+                                                    {option}
+                                                  </SelectItem>
+                                                ))}
+                                              </SelectContent>
+                                            </Select>
+                                          );
+
+                                        case 'CHECKBOX':
+                                          return (
+                                            <div className="space-y-2">
+                                              {question.options?.map((option) => {
+                                                // Parse the current value as JSON, defaulting to empty array if invalid
+                                                const currentValues = (() => {
+                                                  try {
+                                                    return JSON.parse(field.value || '[]');
+                                                  } catch {
+                                                    return [];
+                                                  }
+                                                })();
+
+                                                return (
+                                                  <div key={option} className="flex items-center space-x-2">
+                                                    <Checkbox
+                                                      checked={currentValues.includes(option)}
+                                                      onCheckedChange={(checked) => {
+                                                        sethasEdited(true);
+                                                        const updatedValues = checked
+                                                          ? [...currentValues, option]
+                                                          : currentValues.filter((v) => v !== option);
+                                                        field.onChange(JSON.stringify(updatedValues));
+                                                      }}
+                                                    />
+                                                    <span>{option}</span>
+                                                  </div>
+                                                );
+                                              })}
+                                            </div>
+                                          );
+                                        
+                                        case 'BOOLEAN':
+                                          return (
+                                            <div className="flex items-center space-x-4">
+                                              <div className="flex items-center space-x-2">
+                                                <Checkbox
+                                                  checked={field.value === 'true'}
+                                                  onCheckedChange={(checked) => {
+                                                    sethasEdited(true);
+                                                    field.onChange(checked ? 'true' : 'false');
+                                                  }}
+                                                />
+                                                <span>Yes</span>
+                                              </div>
+                                              <div className="flex items-center space-x-2">
+                                                <Checkbox
+                                                  checked={field.value === 'false' || !field.value}  // Default to false if undefined
+                                                  onCheckedChange={(checked) => {
+                                                    sethasEdited(true);
+                                                    field.onChange(checked ? 'false' : 'true');
+                                                  }}
+                                                />
+                                                <span>No</span>
+                                              </div>
+                                            </div>
+                                          );
+                                        
+                                        case 'TEXT':
+                                        default:
+                                          return (
+                                            <Input
+                                              {...field}
+                                              onChange={(e) => {
+                                                sethasEdited(true);
+                                                field.onChange(e);
+                                              }}
+                                              value={field.value || ''}  // Ensure value is never undefined
+                                              placeholder="Enter text"
+                                            />
+                                          );
+                                      }
+                                    })()}
+                                  </FormControl>
+                                )}
+                              </div>
+                              <FormDescription>
+                                {question.type === 'NUMERIC' && question.range && (
+                                  `Valid range: ${question.range.min} - ${question.range.max}`
+                                )}
+                              </FormDescription>
+                              <FormMessage />
+                            </FormItem>
+                          );
+                        }}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center justify-center h-40 bg-gray-50 rounded-lg">
+                    <p className="text-muted-foreground text-center mb-4">No form available for this section.</p>
+                    <Button 
+                      variant="outline" 
+                      onClick={() => loadDeepQuestions()}
+                      disabled={loadingDeepForm}
+                    >
+                      {loadingDeepForm ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Loading...
+                        </>
+                      ) : (
+                        <>
+                          <FileSearch className="mr-2 h-4 w-4" />
+                          Load Deep Form
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                )}
+              
+              <div className="mt-4">
+                <ValidationResults 
+                  validationResults={audit?.subsections[currentStep]?.deepValidationResults}
+                  subsectionStatus={audit?.subsections[currentStep]?.status}
+                />
+              </div>
+              </div>
+            </div>
+
+            {/* Comments Section - Spans both columns */}
+            <div className="mt-8 pt-6 border-t">
+              <FormField
+                control={methods.control}
+                name={`subsectionComment`}
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Auditor Comments</FormLabel>
+                    <FormControl>
+                      <textarea
+                        className="w-full min-h-[100px] p-2 border rounded-md"
+                        placeholder="Enter comments for this section..."
+                        value={audit?.subsections[currentStep]?.comment || ""}
+                        onChange={(e) => {
+                          if (!audit) return;
+                          const updatedSubsections = [...audit.subsections];
+                          updatedSubsections[currentStep] = {
+                            ...updatedSubsections[currentStep],
+                            comment: e.target.value
+                          };
+                          setAudit({
+                            ...audit,
+                            subsections: updatedSubsections
+                          });
+                        }}
+                      />
+                    </FormControl>
+                  </FormItem>
+                )}
               />
             </div>
+
+            
           </CardContent>
         </Card>
       </div>
       {audit && showReportDialog && viewFullReport()}
       <DeleteConfirmDialog />
-      <MetadataDialog/>
-      <RegulationDialog />
+      <MetadataDialog 
+        showMetadataDialog={showMetadataDialog}
+        setShowMetadataDialog={setShowMetadataDialog}
+        audit={audit}
+        setAudit={setAudit}
+      />
+      <RegulationDialog 
+        showRegulationDialog={showRegulationDialog}
+        setShowRegulationDialog={setShowRegulationDialog}
+        audit={audit}
+        currentStep={currentStep}
+      />
     </FormProvider>
-    
   );
 };
 

@@ -57,6 +57,7 @@ export async function executePrologQueries(
     // First consult the program
     await consultProgram(session, program);
     // Process each query
+    console.log(program);
     for (const query of queries) {
       try {
         const answers: string[] = [];

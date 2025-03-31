@@ -1,34 +1,40 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { toast, Toaster } from 'sonner';
 import ComplianceDashboard from '@/components/ComplianceDashboard';
 
 export default function HomePage() {
-  useEffect(() => {
-    const checkMobileView = () => {
-      // Check if screen width is typical for mobile devices
-      if (typeof window !== 'undefined' && window.innerWidth <= 768) {
-        toast.warning('This analytics page is optimized for desktop view', {
-          description: 'Some features may not display correctly on mobile devices.',
-          duration: 5000,
-          position: 'top-center'
-        });
-      }
-    };
-
-    // Check on client-side mount
-    checkMobileView();
-
-    // Add resize listener to check if user resizes browser
-    window.addEventListener('resize', checkMobileView);
-
-    // Cleanup listener on component unmount
-    return () => {
-      window.removeEventListener('resize', checkMobileView);
-    };
-  }, []); // Empty dependency array ensures this runs only on mount
-
+  const [isMobile, setIsMobile] = useState(false);
+  
+    useEffect(() => {
+      const checkMobileView = () => {
+        setIsMobile(typeof window !== 'undefined' && window.innerWidth <= 768);
+      };
+  
+      checkMobileView(); // Initial check
+  
+      window.addEventListener('resize', checkMobileView);
+      return () => {
+        window.removeEventListener('resize', checkMobileView);
+      };
+    }, []);
+  
+    if (isMobile) {
+      return (
+        <div style={{ 
+          display: 'flex', 
+          justifyContent: 'center', 
+          alignItems: 'center', 
+          height: '100vh', 
+          textAlign: 'center',
+          fontSize: '1.5rem', 
+          padding: '20px'
+        }}>
+          This page cannot be viewed on a mobile device. Please use a desktop.
+        </div>
+      );
+    }
   return (
     <>
       <ComplianceDashboard />

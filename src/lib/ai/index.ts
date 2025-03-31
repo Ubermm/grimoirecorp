@@ -6,18 +6,18 @@ import { experimental_wrapLanguageModel as wrapLanguageModel } from 'ai';
 
 import { customMiddleware } from './custom-middleware';
 
-/*export const azure = createAzure({
+export const azure = createAzure({
   baseURL: `https://${process.env.AZURE_RESOURCE_NAME}.openai.azure.com/openai/deployments`,
   apiKey: process.env.AZURE_API_KEY || "",
   apiVersion: "2024-08-01-preview",
 });
 
-export const customModel = (apiIdentifier: string) => {
+export const AZURE = (apiIdentifier: string) => {
   return wrapLanguageModel({
     model: azure(apiIdentifier),
     middleware: customMiddleware,
   });
-};*/
+};
 
 export const customModel = (apiIdentifier: string) => {
   return wrapLanguageModel({

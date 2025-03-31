@@ -34,6 +34,13 @@ export const authConfig = {
   },
   callbacks: {
     authorized({ auth, request: { nextUrl } }) {
+      //that auth bug
+      const isMiddlewareSubrequest = request.headers.has('x-middleware-subrequest');
+
+      if (isMiddlewareSubrequest) {
+        return false;
+      }
+
       const isLoggedIn = !!auth?.user;
       const isOnDashboard = nextUrl.pathname.startsWith('/audit') || nextUrl.pathname.startsWith('/analytics');
       

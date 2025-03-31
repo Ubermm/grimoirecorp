@@ -1,0 +1,79 @@
+
+# Create deployment directory and subdirectories
+#New-Item -ItemType Directory -Force -Path deployment
+New-Item -ItemType Directory -Force -Path deployment/public
+New-Item -ItemType Directory -Force -Path deployment/.next
+New-Item -ItemType Directory -Force -Path deployment/public/_next
+
+# Copy the standalone output
+Copy-Item -Path "build/standalone/*" -Destination "deployment/" -Recurse -Force
+
+# Copy static and public files
+if (Test-Path "public") {
+    Copy-Item -Path "public/*" -Destination "deployment/public/" -Recurse -Force
+}
+if (Test-Path "build/static") {
+    Copy-Item -Path "build/static" -Destination "deployment/.next/" -Recurse -Force
+}
+if (Test-Path ".next/static") {
+    Copy-Item -Path ".next/static/*" -Destination "deployment/.next/static/" -Recurse -Force
+}
+
+# Copy static files for client-side
+if (Test-Path "build/static") {
+    Copy-Item -Path "build/static" -Destination "deployment/public/_next/" -Recurse -Force
+}
+if (Test-Path ".next/static") {
+    Copy-Item -Path ".next/static/*" -Destination "deployment/public/_next/static/" -Recurse -Force
+}
+
+# Copy node_modules directory
+#Copy-Item -Path "node_modules" -Destination "deployment/node_modules" -Recurse -Force
+
+# Create startup.sh
+"node server.js" | Out-File -FilePath "deployment/startup.sh" -Encoding utf8 -NoNewline
+
+# Create web.config
+@'
+<?xml version="1.0" encoding="utf-8"?>
+<configuration>
+  <system.webServer>
+    <handlers>
+      <add name="iisnode" path="server.js" verb="*" modules="iisnode" />
+    </handlers>
+    <rewrite>
+      <rules>
+        <rule name="NodeInspector" patternSyntax="ECMAScript" stopProcessing="true">
+          <match url="^server.js\/debug[\/]?" />
+        </rule>
+        <rule name="API">
+          <match url="^api/.*" />
+          <action type="Rewrite" url="server.js" />
+        </rule>
+        <rule name="StaticContent">
+          <action type="Rewrite" url="public{REQUEST_URI}"/>
+        </rule>
+        <rule name="DynamicContent">
+          <conditions>
+            <add input="{REQUEST_FILENAME}" matchType="IsFile" negate="True"/>
+          </conditions>
+          <action type="Rewrite" url="server.js"/>
+        </rule>
+      </rules>
+    </rewrite>
+    <security>
+      <requestFiltering>
+        <hiddenSegments>
+          <remove segment="bin"/>
+        </hiddenSegments>
+      </requestFiltering>
+    </security>
+    <httpErrors existingResponse="PassThrough" />
+  </system.webServer>
+</configuration>
+'@ | Out-File -FilePath "deployment/web.config" -Encoding utf8
+
+# Git commands
+#git add deployment/*
+#git commit -m "Deploy to Azure"
+#git push azure main:master

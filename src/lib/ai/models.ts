@@ -25,6 +25,12 @@ export const models: Array<Model> = [
     label: 'Anthropic',
     apiIdentifier: 'claude-3-haiku-20240307',
     description: 'Compliance assistant model',
+  },
+  {
+    id: 'gpt-4o',
+    label: 'Azure OpenAI',
+    apiIdentifier: 'gpt-4o',
+    description: 'Compliance assistant model',
   }
 ] as const;
   

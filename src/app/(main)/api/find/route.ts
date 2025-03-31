@@ -325,7 +325,7 @@ export async function POST(request: Request) {
                     matchedFdcCodes: 1,
                     totalMatches: 1,
                     url: 1,
-                    title: 1
+                    title: 1,
                 }
             }
         ]);

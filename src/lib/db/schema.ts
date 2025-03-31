@@ -1,6 +1,8 @@
 //@ts-nocheck
 // // src/lib/db/schema.ts
 
+import { StringSchemaDefinition } from "mongoose";
+
 export type ObjectId = string;
 
 // User Schema
@@ -78,6 +80,7 @@ export interface WarningLetter {
   title: string;
   cfr_codes: string;
   fdc_codes: string;
+  content: string;
 }
 
 // Module Schema
@@ -175,7 +178,12 @@ export interface AuditSubsection {
   code: string;
   status: 'pending' | 'in_progress' | 'completed' | 'flagged';
   responses: AuditResponse[];
+  deepResponses?: AuditResponse[];
   validationResults?: {
+    passed: string[];
+    description: string[];
+  };
+  deepValidationResults?: {
     passed: string[];
     description: string[];
   };

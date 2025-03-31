@@ -3,6 +3,7 @@
 import mongoose, { Schema, model, models } from 'mongoose';
 import { generateUUID } from '../utils';
 import type * as SchemaTypes from './schema';
+import { any } from 'zod';
 
 // User Model
 const UserSchema = new Schema<SchemaTypes.User>({
@@ -200,6 +201,10 @@ const WarningLetterSchema = new Schema<SchemaTypes.WarningLetter>({
     required: true
   },
   fdc_codes: {
+    type: String,
+    required: true
+  },
+  content: {
     type: String,
     required: true
   }
@@ -459,7 +464,12 @@ const AuditSubsectionSchema = new Schema({
     default: 'pending'
   },
   responses: [AuditResponseSchema],
+  deepResponses: [AuditResponseSchema],
   validationResults: {
+    passed: [String],
+    description: [String]
+  },
+  deepValidationResults: {
     passed: [String],
     description: [String]
   },
@@ -546,3 +556,30 @@ const formSchema = new mongoose.Schema({
 // Create models from the schemas
 export const CRegulation = models.regulations || mongoose.model('regulations', regulationSchema);
 export const CForm = models.forms || mongoose.model('forms', formSchema);
+
+const searchSchema = new Schema({
+  _id: Schema.Types.Mixed, // Accepts ObjectId or UUID
+  Keys: {
+    type: [String],
+    required: true,
+  },
+});
+
+export const CSearch = models.search || mongoose.model("search", searchSchema);
+
+const additionalSchema = new mongoose.Schema({
+  _id: {
+    type: Schema.Types.Mixed,
+    default: () => generateUUID()
+  },
+  cfrCode: {
+    type: String,
+    required: true
+  },
+  FormText: {
+    type: String,
+    required: true
+  }
+});
+
+export const CAdditional = models.additional || mongoose.model('additional', additionalSchema);
