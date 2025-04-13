@@ -1,3 +1,4 @@
+//src/app/(auth)/layout.tsx
 import { NavBar } from '@/components/NavBar';
 import { Footer } from '@/components/Footer';
 import { Toaster } from 'sonner';

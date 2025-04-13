@@ -11,7 +11,7 @@ import path from 'path';
 const authFormSchema = z.object({
   email: z.string().email(),
   password: z.string().min(6),
-  callbackUrl: z.string().default('/audit'),
+  callbackUrl: z.string().default('/org'),
 });
 
 export interface AuthActionState {
@@ -154,7 +154,7 @@ export const login = async (
     const validatedData = authFormSchema.parse({
       email: formData.get('email'),
       password: formData.get('password'),
-      callbackUrl: rawCallbackUrl || '/audit',
+      callbackUrl: rawCallbackUrl || '/org',
     });
 
     const result = await signIn('credentials', {

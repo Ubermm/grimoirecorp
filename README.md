@@ -1,36 +1,75 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Grimoire Platform Module
 
-## Getting Started
+This module implements the core functionality for running notebooks and models on GPU pods using RunPod.
 
-First, run the development server:
+## Features
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+- Custom notebook execution on GPU pods
+- Pre-built models like AlphaFold3
+- Dataset management
+- Organization and credit management
+- Result downloading
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Architecture
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### Core Components
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+1. **RunpodService**: Interfaces with the RunPod API to create, monitor, and manage GPU pods
+2. **BlobStorageService**: Manages Azure Blob Storage for notebooks, datasets, and results
+3. **NotebookService**: Orchestrates notebook creation, running, and result processing
+4. **ModelService**: Manages pre-built models like AlphaFold3
 
-## Learn More
+### Data Flow
 
-To learn more about Next.js, take a look at the following resources:
+1. User uploads a notebook (.ipynb file) and optional datasets
+2. System creates an input container for datasets and an output container for results
+3. System uploads notebook to blob storage
+4. RunPod pod is created with the notebook URL and container SAS URLs as environment variables
+5. Pod executes notebook, reading from /input and writing to /output
+6. Results are stored in blob storage
+7. User can download executed notebook and output files
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## API Routes
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+- `POST /api/notebooks/[id]/runs`: Run a notebook with optional datasets
+- `GET /api/notebooks/[id]/runs`: Get all runs for a notebook
+- `GET /api/runs/[id]`: Get details for a specific run
+- `GET /api/runs/[id]/download`: Get download links for run results
 
-## Deploy on Vercel
+## Custom Notebook Container
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+The custom notebook container is a Docker image that:
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+1. Downloads the notebook from the provided URL
+2. Downloads input datasets from the input container
+3. Executes the notebook
+4. Uploads the executed notebook and output files to the output container
+
+See `CONTAINER.md` for details on the container structure and configuration.
+
+## Production Readiness Checklist
+
+- [x] RunPod API integration completed
+- [x] Azure Blob Storage integration for datasets and results
+- [x] API endpoints for running notebooks and downloading results
+- [x] Database schema for tracking runs and results
+- [x] Container specification for custom notebooks
+- [x] Documentation for container builders
+- [x] User interface for uploading datasets
+- [x] Monitoring and logging
+  - Added comprehensive structured logging system
+  - Performance monitoring for tracking execution time
+  - Method decorators for automatic monitoring
+- [x] Error handling and retry logic
+  - Standardized error types and codes
+  - Exponential backoff retry mechanism
+  - Proper error handling in API routes
+- [x] Cost and credit management
+  - Credit tracking per organization
+  - Usage-based billing based on GPU type and runtime
+  - Credit validation before running notebooks
+- [x] Job throttling and queueing
+  - Priority-based job queue
+  - Rate limiting per user and organization
+  - Configurable concurrency limits
+  - Asynchronous job processing

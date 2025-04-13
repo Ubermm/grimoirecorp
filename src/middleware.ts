@@ -6,8 +6,10 @@ export default NextAuth(authConfig).auth;
 
 export const config = {
   matcher: [
-    '/analytics/:path*',
-    '/audit/:path*',
+    '/models/:path*',
+    '/org/:path*',
+    '/pod/:path*',
+    '/runs/:path*',
     '/api/:path*',
     '/login',
     '/register',

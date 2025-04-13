@@ -1,87 +1,145 @@
-//@ts-nocheck
 'use client';
 
-import type { User } from 'next-auth';
-import { useRouter } from 'next/navigation';
-
-import { PlusIcon, HomeIcon } from '@/components/icons';
-import { SidebarHistory } from '@/components/sidebar-history';
-import { SidebarUserNav } from '@/components/sidebar-user-nav';
-import { Button } from '@/components/ui/button';
-import {
-  Sidebar,
-  SidebarContent,
-  SidebarFooter,
-  SidebarGroup,
-  SidebarGroupContent,
-  SidebarHeader,
-  SidebarMenu,
-  useSidebar,
-} from '@/components/ui/sidebar';
+import { useState } from 'react';
+import { User } from 'next-auth';
 import Link from 'next/link';
-import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
+import { usePathname } from 'next/navigation';
+import { cn } from '@/lib/utils';
+import { Button } from '@/components/ui/button';
+import { Sidebar, SidebarFooter, SidebarMenuButton } from '@/components/ui/sidebar';
+import Image from 'next/image';
+import { 
+  Home, 
+  Grid3x3, 
+  Building2, 
+  BookOpen, 
+  PlayCircle, 
+  LogOut, 
+  Settings,
+  ChevronUp,
+  ChevronDown
+} from 'lucide-react';
 
+interface AppSidebarProps {
+  user: User;
+}
 
-export function AppSidebar({ user }: { user: User | undefined }) {
-  const router = useRouter();
-  const { setOpenMobile } = useSidebar();
+export function AppSidebar({ user }: AppSidebarProps) {
+  const pathname = usePathname();
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+
+  const navigationItems = [
+    {
+      name: 'Home',
+      href: '/',
+      icon: Home
+    },
+    {
+      name: 'Catalogue',
+      href: '/models',
+      icon: Grid3x3
+    },
+    {
+      name: 'Organization',
+      href: '/org',
+      icon: Building2
+    },
+    {
+      name: 'Notebooks',
+      href: '/pod',
+      icon: BookOpen
+    },
+    {
+      name: 'Runs',
+      href: '/runs',
+      icon: PlayCircle
+    }
+  ];
+
+  const toggleMenu = () => {
+    setIsMenuOpen(!isMenuOpen);
+  };
 
   return (
-    <Sidebar className="group-data-[side=left]:border-r-0">
-      <SidebarHeader>
-        <SidebarMenu>
-          <div className="flex flex-row justify-between items-center">
-            <Link
-              href="/chat"
-              onClick={() => {
-                setOpenMobile(false);
-              }}
-              className="flex flex-row gap-3 items-center"
-            >
-              <span className="text-lg font-semibold px-2 hover:bg-muted rounded-md cursor-pointer">
-                CFR Consultation
-              </span>
-            </Link>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  type="button"
-                  className="p-2 h-fit"
-                  onClick={() => {
-                    setOpenMobile(false);
-                    router.push('/chat');
-                    router.refresh();
-                  }}
-                >
-                  <PlusIcon />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent align="end">New Chat</TooltipContent>
-            </Tooltip>
-            <Tooltip>
-            <TooltipTrigger asChild>
-            <Button
-                  variant="ghost"
-                  type="button"
-                  className="p-2 h-fit"
-                  onClick={() => {
-                    setOpenMobile(false);
-                    router.push('/analytics');
-                  }}
-                >
-                  <HomeIcon />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent align="end">Return to Analytics</TooltipContent>
-            </Tooltip>
+    <Sidebar className="border-r">
+      <div className="flex flex-col h-full">
+        <div className="px-3 py-4">
+          <Link href="/" className="flex items-center px-3 mb-6">
+            <span className="font-bold text-lg">FDA Compliance Tool</span>
+          </Link>
+
+          <div className="space-y-1">
+            {navigationItems.map((item) => {
+              const isActive = pathname === item.href || 
+                (item.href !== '/' && pathname.startsWith(item.href));
+              
+              return (
+                <Link key={item.href} href={item.href}>
+                  <Button
+                    variant={isActive ? "secondary" : "ghost"}
+                    className={cn(
+                      "w-full justify-start",
+                      isActive && "bg-muted"
+                    )}
+                  >
+                    <item.icon className="mr-2 h-4 w-4" />
+                    {item.name}
+                  </Button>
+                </Link>
+              );
+            })}
           </div>
-        </SidebarMenu>
-      </SidebarHeader>
-      <SidebarContent>
-        <SidebarHistory user={user} />
-      </SidebarContent>
-      <SidebarFooter>{user && <SidebarUserNav user={user} />}</SidebarFooter>
+        </div>
+
+        <div className="mt-auto">
+          <SidebarFooter>
+            <div className="flex items-center justify-between w-full px-3 py-2">
+              <Button 
+                variant="ghost" 
+                className="flex items-center justify-between w-full p-2" 
+                onClick={toggleMenu}
+              >
+                <div className="flex items-center">
+                  <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center overflow-hidden">
+                    <Image
+                      src={`https://avatar.vercel.sh/${user.email}`}
+                      alt={user.email ?? 'User Avatar'}
+                      width={32}
+                      height={32}
+                      className="rounded-full h-8 w-8"
+                    />
+                  </div>
+                  <span className="ml-2 text-sm font-medium truncate max-w-32">
+                    {user?.name || user?.email}
+                  </span>
+                </div>
+                {isMenuOpen ? (
+                  <ChevronUp className="h-4 w-4 ml-2" />
+                ) : (
+                  <ChevronDown className="h-4 w-4 ml-2" />
+                )}
+              </Button>
+              
+              {isMenuOpen && (
+                <div className="absolute bottom-14 left-0 right-0 bg-background border border-border rounded-md shadow-md p-2 mx-2">
+                  <Link href="/settings">
+                    <Button variant="ghost" className="w-full justify-start text-sm">
+                      <Settings className="h-4 w-4 mr-2" />
+                      Settings
+                    </Button>
+                  </Link>
+                  <Link href="/logout">
+                    <Button variant="ghost" className="w-full justify-start text-sm">
+                      <LogOut className="h-4 w-4 mr-2" />
+                      Log out
+                    </Button>
+                  </Link>
+                </div>
+              )}
+            </div>
+          </SidebarFooter>
+        </div>
+      </div>
     </Sidebar>
   );
 }

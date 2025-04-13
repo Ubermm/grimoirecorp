@@ -1,0 +1,30 @@
+#!/bin/bash
+echo "🔍 ENV VARS:"
+env | sort
+
+for arg in "$@"; do
+  if [[ "$arg" == *=* ]]; then
+    key="${arg%%=*}"
+    value="${arg#*=}"
+    export "$key=$value"
+  fi
+done
+
+# Log what got set
+echo "🔍 Exported variables:"
+env | grep -E '^(INPUT_CONTAINER_URL|OUTPUT_CONTAINER_URL|MAIN_FILE_PATH)='
+
+# Log environment variables
+echo "Starting container with the following configuration:"
+echo "- Input Container URL: ${INPUT_CONTAINER_URL:+yes}"
+echo "- Output Container URL: ${OUTPUT_CONTAINER_URL:+yes}"
+echo "- Main File Path: ${MAIN_FILE_PATH:+$MAIN_FILE_PATH}"
+
+# Optionally start Jupyter Lab or keep the container alive based on argument
+if [ "$1" = "jupyter" ]; then
+    echo "Starting Jupyter Lab..."
+    jupyter lab --ip=0.0.0.0 --port=8888 --no-browser --allow-root --NotebookApp.token=""
+elif [ "$1" = "keep-alive" ]; then
+    echo "Keeping container alive..."
+    tail -f /dev/null
+fi

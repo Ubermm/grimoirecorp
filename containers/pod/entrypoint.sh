@@ -1,0 +1,145 @@
+#!/bin/bash 
+# Log environment variables
+echo "Starting container with the following configuration:"
+echo "- Input Container URL: ${INPUT_CONTAINER_URL:+yes}"
+echo "- Output Container URL: ${OUTPUT_CONTAINER_URL:+yes}"
+echo "- Main File Path: ${MAIN_FILE_PATH:+$MAIN_FILE_PATH}"
+
+sudo mkdir -p /inp
+sudo chmod 777 /inp
+
+
+# Function to download all files from an Azure Blob container using SAS URL
+# Preserves directory structure by reconstructing it from the blob name
+download_from_container() {
+    local container_url=$1
+    local destination=$2
+
+    echo "Downloading files from container to $destination directory"
+    
+    # Extract container name, account name and SAS token from URL
+    local container_name=$(echo $container_url | awk -F "/" '{print $4}')
+    local account_name=$(echo $container_url | awk -F "/" '{print $3}' | awk -F "." '{print $1}')
+    local sas_token=$(echo $container_url | grep -o "sv=.*")
+
+    # Construct the URL to list blobs
+    local blob_list_url="${container_url%\?*}?restype=container&comp=list&${container_url#*\?}"
+    local blob_list=$(curl -s "$blob_list_url")
+
+    # Parse XML to extract blob names
+    local blob_names=$(echo "$blob_list" | grep -o "<Name>[^<]*</Name>" | sed "s/<Name>//g" | sed "s/<\/Name>//g")
+
+    # Loop through each blob name and download it preserving the directory structure
+    for blob_name in $blob_names; do
+        echo "Downloading blob: $blob_name"
+        # Create directory structure if needed
+        local dir_path=$(dirname "$destination/$blob_name")
+        mkdir -p "$dir_path"
+        # Build blob URL using the SAS token
+        local blob_url="${container_url%\?*}/$blob_name?${container_url#*\?}"
+        curl -s -o "$destination/$blob_name" "$blob_url"
+    done
+}
+
+# Function to delete all blobs in an Azure container (stub for now)
+empty_container() {
+    local container_url=$1
+    echo "Emptying container at: $container_url"
+    # You can implement deletion logic here using Azure CLI or REST API if needed.
+}
+
+# Function to upload a file to Azure Blob Storage using SAS URL
+# Encodes the file's relative path in its blob name to preserve directory structure
+upload_blob() {
+    local file_path=$1
+    local relative_path=$2
+    local container_url=$3
+
+    # Construct the blob URL from container URL and relative path
+    local blob_url="${container_url%\?*}/$relative_path?${container_url#*\?}"
+
+    echo "Uploading file $file_path as blob $relative_path"
+    curl -X PUT \
+         -H "x-ms-blob-type: BlockBlob" \
+         -H "Content-Type: application/octet-stream" \
+         --data-binary "@$file_path" \
+         "$blob_url"
+}
+
+# Function to recursively upload directory contents preserving the relative paths
+upload_directory() {
+    local source_dir=$1
+    local container_url=$2
+    local base_dir=$3
+
+    find "$source_dir" -type f | while read file; do
+        # Calculate relative path from base directory (this encodes the directory structure in the blob name)
+        local relative_path=${file#$base_dir/}
+        upload_blob "$file" "$relative_path" "$container_url"
+    done
+}
+
+# Main execution flow
+
+# Download input files if container URL is provided
+if [ ! -z "$INPUT_CONTAINER_URL" ]; then
+    echo "Downloading files from input container to /input directory"
+    download_from_container "$INPUT_CONTAINER_URL" "/input"
+else
+    echo "No INPUT_CONTAINER_URL provided. Skipping input download."
+fi
+
+# Check if main file path is provided and execute it if found
+if [ ! -z "$MAIN_FILE_PATH" ]; then
+    if [ -f "/input$MAIN_FILE_PATH" ]; then
+        echo "Main file found: /input$MAIN_FILE_PATH"
+        # Create a working directory, copy input files, and switch to workspace
+        mkdir -p /workspace
+        cp -r /input/* /workspace/
+        cd /workspace
+
+        # Determine action based on file extension
+        if [[ "$MAIN_FILE_PATH" == *.ipynb ]]; then
+            echo "Executing Jupyter notebook: $MAIN_FILE_PATH"
+            jupyter nbconvert --to notebook --execute "$MAIN_FILE_PATH" --output "executed_$(basename "$MAIN_FILE_PATH")"
+        elif [[ "$MAIN_FILE_PATH" == *.py ]]; then
+            echo "Executing Python script: /input$MAIN_FILE_PATH"
+            python3 "/input$MAIN_FILE_PATH"
+        else
+            echo "Unsupported file type: $MAIN_FILE_PATH"
+        fi
+    else
+        echo "Error: Main file not found at /input$MAIN_FILE_PATH"
+    fi
+else
+    echo "No MAIN_FILE_PATH provided. Skipping execution."
+fi
+
+# Process outputs by uploading files to the output container if provided
+if [ ! -z "$OUTPUT_CONTAINER_URL" ]; then
+    echo "Emptying the output container before uploading results"
+    empty_container "$OUTPUT_CONTAINER_URL"
+
+    # Upload all workspace files to preserve directory structure
+    if [ -d "/workspace" ]; then
+        echo "Uploading workspace contents to output container"
+        upload_directory "/workspace" "$OUTPUT_CONTAINER_URL" "/workspace"
+    fi
+
+    # Upload any files explicitly placed in the /output directory if present
+    if [ -d "/output" ] && [ -n "$(ls -A /output 2>/dev/null)" ]; then
+        echo "Uploading files from /output directory to output container"
+        upload_directory "/output" "$OUTPUT_CONTAINER_URL" "/output"
+    fi
+else
+    echo "No OUTPUT_CONTAINER_URL provided. Skipping output upload."
+fi
+
+# Optionally start Jupyter Lab or keep the container alive based on argument
+if [ "$1" = "jupyter" ]; then
+    echo "Starting Jupyter Lab..."
+    jupyter lab --ip=0.0.0.0 --port=8888 --no-browser --allow-root --NotebookApp.token=""
+elif [ "$1" = "keep-alive" ]; then
+    echo "Keeping container alive..."
+    tail -f /dev/null
+fi

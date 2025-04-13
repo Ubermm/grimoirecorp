@@ -33,8 +33,9 @@ export const authConfig = {
     }
   },
   callbacks: {
-    authorized({ auth, request: { nextUrl } }) {
+    authorized({ auth, request }) {
       //that auth bug
+      const { nextUrl } = request;
       const isMiddlewareSubrequest = request.headers.has('x-middleware-subrequest');
 
       if (isMiddlewareSubrequest) {
@@ -42,13 +43,13 @@ export const authConfig = {
       }
 
       const isLoggedIn = !!auth?.user;
-      const isOnDashboard = nextUrl.pathname.startsWith('/audit') || nextUrl.pathname.startsWith('/analytics');
+      const isOnDashboard = nextUrl.pathname.startsWith('/org') || nextUrl.pathname.startsWith('/runs') || nextUrl.pathname.startsWith('/pod') || nextUrl.pathname.startsWith('/models');
       
       if (isOnDashboard) {
         if (isLoggedIn) return true;
         return false; // Redirect unauthenticated users to login page
       } else if (isLoggedIn && nextUrl.pathname === '/login') {
-        return Response.redirect(new URL('/audit', nextUrl));
+        return Response.redirect(new URL('/org', nextUrl));
       }
       return true;
     },

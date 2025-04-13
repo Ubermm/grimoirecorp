@@ -3,7 +3,7 @@ import 'server-only';
 import { genSaltSync, hashSync } from 'bcrypt-ts';
 import mongoose, { Schema, model, Types} from 'mongoose';
 import { BlobServiceClient } from '@azure/storage-blob';
-import { CUser, CContext, CChat, CDocument, CMessage, CVote, CSuggestion, CAttachment, CModule, CWarningLetter } from './models';
+import { User } from './models';
 import { Suggestion } from './schema';
 import { ObjectId } from 'mongodb';
 import {v4 as uuidv4} from 'uuid';
@@ -213,7 +213,7 @@ export async function deleteAttachmentsByMessageId({ messageId }: { messageId: s
 
 export async function getUser(email: string) {
   try {
-    return await CUser.find({ email });
+    return await User.find({ email });
   } catch (error) {
     console.error('Failed to get user from database');
     throw error;
@@ -231,7 +231,7 @@ export async function createUser(email: string, password: string) {
   const hash = hashSync(password, salt);
 
   try {
-    return await CUser.create({ email, password: hash });
+    return await User.create({ email, password: hash });
   } catch (error) {
     console.error('Failed to create user in database');
     throw error;
@@ -442,6 +442,139 @@ export async function getSuggestionsByDocumentId({
       'Failed to get suggestions by document version from database',
     );
     throw error;
+  }
+}
+
+// Organization related functions
+export async function getOrganization(id: string) {
+  // Validate organizationId before proceeding
+  if (!id || id === 'undefined') {
+    return null;
+  }
+  
+  const organizationService = new (await import('@/services/organizationService')).OrganizationService();
+  
+  try {
+    const organization = await organizationService.getOrganization(id);
+    
+    if (!organization) {
+      return null;
+    }
+    
+    // Find the current user's role in the organization
+    const session = await (await import('@/app/(auth)/auth')).auth();
+    const userId = session?.user?.id;
+    const userMember = organization.members.find(member => member.userId === userId);
+    
+    // Calculate total credits used by the organization
+    const NotebookRun = (await import('@/lib/db/models')).NotebookRun;
+    const totalCreditsUsed = await NotebookRun.aggregate([
+      { $match: { organizationId: organization.id, status: 'completed' } },
+      { $group: { _id: null, total: { $sum: '$creditsUsed' } } }
+    ]);
+
+    const creditsUsed = totalCreditsUsed.length > 0 ? totalCreditsUsed[0].total : 0;
+
+    return {
+      id: organization.id,
+      name: organization.name,
+      creditsAvailable: organization.creditsAvailable,
+      creditsUsed,
+      createdAt: organization.createdAt,
+      currentUserRole: userMember?.role || 'Member',
+      ownerId: organization.ownerId
+    };
+  } catch (error) {
+    console.error('Error fetching organization:', error);
+    return null;
+  }
+}
+
+export async function getOrganizationMembers(id: string) {
+  // Validate organizationId before proceeding
+  if (!id || id === 'undefined') {
+    return [];
+  }
+  
+  const organizationService = new (await import('@/services/organizationService')).OrganizationService();
+  
+  try {
+    const organization = await organizationService.getOrganization(id);
+    
+    if (!organization) {
+      return [];
+    }
+    
+    return organization.members.map(member => ({
+      id: member.userId,
+      name: member.name || 'Unknown User',
+      email: member.email,
+      role: member.role,
+      joinedAt: member.joinedAt || organization.createdAt,
+    }));
+  } catch (error) {
+    console.error('Error fetching organization members:', error);
+    return [];
+  }
+}
+
+// Function to generate mock usage data as fallback
+function getMockUsageData() {
+  const usageData = [];
+  for (let i = 0; i < 7; i++) {
+    const date = new Date();
+    date.setDate(date.getDate() - i);
+    const dateStr = date.toISOString().split('T')[0];
+    usageData.push({ date: dateStr, credits: 0 });
+  }
+  return usageData.sort((a, b) => a.date.localeCompare(b.date));
+}
+
+export async function getOrganizationUsageData(organizationId: string) {
+  // Validate organizationId before proceeding
+  if (!organizationId || organizationId === 'undefined') {
+    return getMockUsageData();
+  }
+  
+  const NotebookRun = (await import('@/lib/db/models')).NotebookRun;
+  
+  try {
+    // Get the last 7 days
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    
+    // Query for notebook runs in the last 7 days for this organization
+    const runs = await NotebookRun.find({
+      organizationId,
+      startedAt: { $gte: sevenDaysAgo },
+      status: 'completed'
+    }).lean();
+    
+    // Group runs by day and sum credits
+    const usageByDay = new Map();
+    
+    // Initialize all 7 days with zero credits
+    for (let i = 0; i < 7; i++) {
+      const date = new Date();
+      date.setDate(date.getDate() - i);
+      const dateStr = date.toISOString().split('T')[0];
+      usageByDay.set(dateStr, 0);
+    }
+    
+    // Add actual usage data
+    runs.forEach(run => {
+      const dateStr = new Date(run.startedAt).toISOString().split('T')[0];
+      const currentCredits = usageByDay.get(dateStr) || 0;
+      usageByDay.set(dateStr, currentCredits + (run.creditsUsed || 0));
+    });
+    
+    // Convert to array and sort by date
+    return Array.from(usageByDay.entries())
+      .map(([date, credits]) => ({ date, credits }))
+      .sort((a, b) => a.date.localeCompare(b.date));
+  } catch (error) {
+    console.error('Error fetching organization usage data:', error);
+    return getMockUsageData();
   }
 }
 

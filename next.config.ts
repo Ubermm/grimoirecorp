@@ -17,7 +17,9 @@ const nextConfig: NextConfig = {
     AZURE_OPENAI_API_BASE: process.env.AZURE_OPENAI_API_BASE,
     JWT: process.env.JWT,
     GROQ_API_KEY: process.env.GROQ_API_KEY,
-    ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY
+    ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
+    RUNPOD_API_KEY: process.env.RUNPOD_API_KEY,
+    REGISTRY_AUTH_ID: process.env.REGISTRY_AUTH_ID,
   },
   experimental: {
     ppr: true,
